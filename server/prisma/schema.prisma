@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  user
+  moderator
+}
+
+enum ModeratorRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+enum PointType {
+  ayuda
+  necesita_ayuda
+}
+
+enum PointCategory {
+  refugio
+  alimentos
+  agua
+  medico
+  otro
+}
+
+enum PointStatus {
+  pending
+  approved
+  rejected
+  active
+  resolved
+}
+
+model User {
+  id                  String            @id @default(cuid())
+  name                String
+  email               String            @unique
+  passwordHash        String
+  role                Role              @default(user)
+  contactInfo         String?
+  createdAt           DateTime          @default(now())
+
+  points              Point[]           @relation("PointCreatedBy")
+  reviewedPoints       Point[]          @relation("PointReviewedBy")
+  moderatorRequest    ModeratorRequest? @relation("RequestByUser")
+  reviewedRequests    ModeratorRequest[] @relation("RequestReviewedBy")
+}
+
+model ModeratorRequest {
+  id             String                  @id @default(cuid())
+  userId         String                  @unique
+  user           User                    @relation("RequestByUser", fields: [userId], references: [id])
+  status         ModeratorRequestStatus  @default(pending)
+  reviewedById   String?
+  reviewedBy     User?                   @relation("RequestReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  createdAt      DateTime                @default(now())
+}
+
+model Point {
+  id                 String         @id @default(cuid())
+  type               PointType
+  title              String
+  description        String
+  lat                Float
+  lng                Float
+  addressText        String?
+  category           PointCategory?
+  photos             String[]       @default([])
+  contactInfo         String
+  verificationCode    String?
+  status             PointStatus
+  createdById         String
+  createdBy           User          @relation("PointCreatedBy", fields: [createdById], references: [id])
+  reviewedById        String?
+  reviewedBy          User?         @relation("PointReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([type, status])
+}
