@@ -12,7 +12,7 @@ Racional de las elecciones técnicas principales. No son ADRs formales, pero cap
 
 - Proyecto chico, equipo chico, servidor casero. Un proceso Express que sirve API + estáticos + SPA es lo más simple de operar. Ver [[Arquitectura general]].
 
-## Modelo dual de puntos (ayuda vs necesita_ayuda)
+## Modelo dual de puntos (offer_help vs need_help)
 
 - Resuelve el trade-off velocidad vs confiabilidad. Ver [[Visión general del proyecto]] y [[Tipos de Punto - ayuda vs necesita_ayuda]].
 
@@ -22,7 +22,7 @@ Racional de las elecciones técnicas principales. No son ADRs formales, pero cap
 
 ## Postgres + Prisma
 
-- Postgres es robusto, gratis, y soporta arrays (`photos TEXT[]`) y enums. Prisma da tipado + migraciones. Ver [[Modelo de datos (actual)]].
+- Postgres es robusto, gratis, y soporta enums y tipos ricos. Prisma da tipado + migraciones. Ver [[Modelo de datos]].
 
 ## MapLibre + OpenFreeMap (no Mapbox/Google)
 
@@ -48,12 +48,16 @@ Racional de las elecciones técnicas principales. No son ADRs formales, pero cap
 
 - Sin UI de admin bootstrap. Una sola vez, controlado. Ver [[Seed del primer moderador]].
 
-## Rediseño del schema sin migrar
+## Plataforma de ayuda estructurada (modelo rico)
 
-- Hay una intención clara de evolucionar a plataforma logística (ver [[Modelo de datos (rediseño pendiente)]]), pero **no se ha ejecutado**. Es una decisión **pendiente**, no cerrada.
+- El modelo evolucionó de "mapa de puntos simple" (coordenadas y fotos directas en `Point`) a una **plataforma logística**: ubicaciones múltiples con rol (`Location`/`PointLocation`), catálogos (`HelpType`, `Supply`), contactos tipados (`Contact`), adjuntos multimedia (`Attachment`), verificación con historial (`Verification`) y trazabilidad (`PointUpdate`). **Ya está migrado e implementado**. Ver [[Modelo de datos]] y [[Estado del proyecto]].
+
+## API normaliza el modelo rico
+
+- Para no exponer la complejidad del modelo al frontend, los endpoints públicos devuelven shapes simples (`location:{lat,lng}`, `photos:string[]`). El modelo rico vive en la DB; la API es la frontera. Ver [[API REST - endpoints]].
 
 ## Relacionado
 
 - [[Objetivos y restricciones]]
-- [[Estado del proyecto y divergencias]]
+- [[Estado del proyecto]]
 - [[Stack tecnológico]]

@@ -2,14 +2,13 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ApiError } from "../api/client";
+import { hasDraft } from "../components/create/draft";
 
 export function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [contactInfo, setContactInfo] = useState("");
   const [wantsModerator, setWantsModerator] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -19,8 +18,8 @@ export function Register() {
     setError(null);
     setSubmitting(true);
     try {
-      await register({ name, email, password, contactInfo, wantsModerator });
-      navigate("/");
+      await register({ email, password, wantsModerator });
+      navigate(hasDraft() ? "/crear" : "/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos crear tu cuenta.");
     } finally {
@@ -32,15 +31,6 @@ export function Register() {
     <div className="max-w-sm mx-auto p-6">
       <h1 className="text-lg font-bold text-gray-900">Crear cuenta</h1>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-        <label className="text-sm font-medium text-gray-700">
-          Nombre
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          />
-        </label>
         <label className="text-sm font-medium text-gray-700">
           Correo
           <input
@@ -59,14 +49,6 @@ export function Register() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="text-sm font-medium text-gray-700">
-          Contacto (Instagram, teléfono) — opcional
-          <input
-            value={contactInfo}
-            onChange={(e) => setContactInfo(e.target.value)}
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
         </label>

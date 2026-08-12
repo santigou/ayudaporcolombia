@@ -17,5 +17,5 @@ Esta carpeta es una **base de conocimiento para Obsidian** que documenta el proy
 
 ## Estado del proyecto
 
-> [!warning] Discrepancia importante
-> El `schema.prisma` actual contiene un rediseño avanzado (más modelos) que **aún no está migrado ni implementado** en el código. Ver [[Estado del proyecto y divergencias]].
+> [!info] Modelo vigente: plataforma de ayuda estructurada
+> El proyecto corre con el modelo rico (migración `20260812160000_init`): ubicaciones múltiples, catálogos, verificación con historial. Backend y frontend están alineados con él. Ver [[Modelo de datos]] y [[Estado del proyecto]].

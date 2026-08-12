@@ -1,45 +1,69 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { MapView } from "../components/MapView";
 import { FiltersBar } from "../components/FiltersBar";
 import { PointList } from "../components/PointList";
 import { PointDetail } from "../components/PointDetail";
-import type { Point, PointCategory, PointType } from "../types";
+import type { BBox, HelpTypeOption, Point, PointsResponse, PointType } from "../types";
 
 export function Home() {
   const [points, setPoints] = useState<Point[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<PointType | "todos">("todos");
-  const [category, setCategory] = useState<PointCategory | "todas">("todas");
+  const [helpType, setHelpType] = useState<HelpTypeOption | "todas">("todas");
   const [selected, setSelected] = useState<Point | null>(null);
+  const [bbox, setBbox] = useState<BBox | null>(null);
+
+  // Reutiliza la última petición para descartar respuestas de bbox viejos (race).
+  const reqIdRef = useRef(0);
 
   useEffect(() => {
+    if (!bbox) return; // el mapa aún no reporta su zona visible
+    const myId = ++reqIdRef.current;
     let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({
+      minLat: String(bbox.minLat),
+      maxLat: String(bbox.maxLat),
+      minLng: String(bbox.minLng),
+      maxLng: String(bbox.maxLng),
+    });
     if (type !== "todos") params.set("type", type);
-    if (type === "ayuda" && category !== "todas") params.set("category", category);
 
     api
-      .get<Point[]>(`/points?${params.toString()}`)
+      .get<PointsResponse>(`/points?${params.toString()}`)
       .then((data) => {
-        if (!cancelled) setPoints(data);
+        if (cancelled || reqIdRef.current !== myId) return;
+        setPoints(data.points);
+        setTruncated(data.truncated);
+        setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No pudimos cargar los puntos. Intenta de nuevo.");
+        if (cancelled || reqIdRef.current !== myId) return;
+        setError("No pudimos cargar los puntos. Intenta de nuevo.");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled || reqIdRef.current !== myId) return;
+        setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [type, category]);
+  }, [bbox, type]);
+
+  // El filtro por tipo de ayuda es en el cliente (el catálogo es libre).
+  const filteredPoints = useMemo(() => {
+    if (type !== "offer_help" || helpType === "todas") return points;
+    return points.filter((p) => p.helpType === helpType);
+  }, [points, type, helpType]);
 
   const handleSelectPoint = useCallback((point: Point) => setSelected(point), []);
+  const handleBoundsChange = useCallback((next: BBox) => setBbox(next), []);
 
+  const selectedId = selected?.id;
   const sidePanel = useMemo(() => {
     if (selected) {
       return <PointDetail point={selected} onClose={() => setSelected(null)} />;
@@ -48,28 +72,41 @@ export function Home() {
       <>
         <FiltersBar
           type={type}
-          category={category}
+          helpType={helpType}
           onTypeChange={(t) => {
             setType(t);
-            setCategory("todas");
+            setHelpType("todas");
           }}
-          onCategoryChange={setCategory}
+          onHelpTypeChange={setHelpType}
         />
         {loading ? (
           <p className="p-4 text-sm text-gray-500">Cargando puntos…</p>
         ) : error ? (
           <p className="p-4 text-sm text-red-600">{error}</p>
         ) : (
-          <PointList points={points} selectedId={selected?.id} onSelect={handleSelectPoint} />
+          <>
+            {truncated && (
+              <p className="px-4 pt-3 text-xs text-amber-700 bg-amber-50">
+                Hay muchos puntos en esta zona. Mostrando los más recientes — acércate en
+                el mapa para ver todos.
+              </p>
+            )}
+            <PointList points={filteredPoints} selectedId={selectedId} onSelect={handleSelectPoint} />
+          </>
         )}
       </>
     );
-  }, [selected, type, category, loading, error, points, handleSelectPoint]);
+  }, [selected, type, helpType, loading, error, truncated, filteredPoints, handleSelectPoint]);
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">
       <div className="relative h-[55vh] md:h-auto md:flex-1">
-        <MapView points={points} selectedId={selected?.id} onSelectPoint={handleSelectPoint} />
+        <MapView
+          points={filteredPoints}
+          selectedId={selected?.id}
+          onSelectPoint={handleSelectPoint}
+          onBoundsChange={handleBoundsChange}
+        />
         <Link
           to="/crear"
           className="absolute bottom-4 right-4 z-10 rounded-full bg-brand text-white px-5 py-3 font-semibold shadow-lg hover:bg-brand-dark"

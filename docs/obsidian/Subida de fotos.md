@@ -31,7 +31,7 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 ## En el modelo
 
-Las URLs se guardan en `Point.photos TEXT[]` (array). El frontend las muestra en `PointDetail.tsx`.
+Las URLs se guardan en la tabla `Attachment` (`type=image`). La API las normaliza a `photos: string[]` en el listado/detalle, y el frontend las muestra en `PointDetail.tsx`.
 
 > [!warning] No hay limpieza
 > Si un punto se rechaza o elimina, **las fotos quedan en disco**. No hay garbage collection. Ver [[Seguridad y consideraciones]].

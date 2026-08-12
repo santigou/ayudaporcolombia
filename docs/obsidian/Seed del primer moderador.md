@@ -10,11 +10,14 @@ tipo: howto
 
 ## Qué hace
 
-1. Lee `SEED_MODERATOR_NAME`, `SEED_MODERATOR_EMAIL`, `SEED_MODERATOR_PASSWORD` de `server/.env`. Si falta alguno → throw con mensaje claro.
+1. Lee `SEED_MODERATOR_EMAIL`, `SEED_MODERATOR_PASSWORD` de `server/.env`. Si falta alguno → throw con mensaje claro.
 2. Si **ya existe** un user con ese email → loguea y sale (idempotente). No sobreescribe rol.
 3. Hashea la password con `hashPassword` (bcrypt, 10 rounds).
 4. Crea el `User` con `role: "moderator"` directamente.
 5. Loguea `Moderador creado: <email> (id ...)` y desconecta Prisma.
+
+> [!warning] Sin `name`
+> El modelo `User` no tiene `name`. El seed usa **solo email + contraseña**. La variable `SEED_MODERATOR_NAME` del `.env` es **legacy** y se ignora.
 
 ## Uso típico
 

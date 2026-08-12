@@ -6,39 +6,39 @@ tipo: referencia
 
 # Estados y ciclos de vida de un Punto
 
-Modelo **actual** (ver [[Modelo de datos (actual)]]). El `PointStatus` tiene 5 valores, pero se usan distinto según el `type`.
+Modelo vigente (ver [[Modelo de datos]]). El `PointStatus` tiene 6 valores, pero su uso depende del `type`.
 
 ## Visión rápida
 
 | Status | Significado | ¿visible públicamente? |
 |---|---|---|
 | `pending` | Esperando revisión de moderador | ❌ |
-| `approved` | Verificado y publicado | ✅ (solo tipo `ayuda`) |
-| `active` | Publicado directo, sin verificar | ✅ (solo tipo `necesita_ayuda`) |
-| `resolved` | Caso resuelto | ✅ (en `necesita_ayuda`) |
+| `active` | Publicado | ✅ (`offer_help` tras aprobación; `need_help` desde el inicio) |
+| `resolved` | Caso resuelto | ✅ (en `need_help`) |
 | `rejected` | Rechazado por moderador | ❌ |
+| `expired` | Expiró (`expiresAt`) | ❌ (declarado, sin endpoint que lo asigne aún) |
+| `cancelled` | Cancelado | ❌ (declarado, sin endpoint aún) |
 
 > [!info] La regla de visibilidad está en el código
-> `PUBLIC_STATUSES` en `points.routes.ts`:
+> `points.routes.ts`:
 > ```
-> ayuda         → [approved]
-> necesita_ayuda → [active, resolved]
+> offer_help → visible solo si verificationStatus = approved
+> need_help  → visible si status ∈ { active, resolved }
 > ```
 
-## Punto de ayuda (`type=ayuda`)
+## Punto de oferta de ayuda (`type=offer_help`)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: usuario crea + verificationCode
-    pending --> approved: moderador aprueba
-    pending --> rejected: moderador rechaza
+    [*] --> pending: usuario crea (verificationStatus=pending)
+    pending --> active: moderador aprueba → Verification(approved)
+    pending --> rejected: moderador rechaza → Verification(rejected)
 ```
 
-- Nace `pending` con un `verificationCode` (ver [[Sistema de verificación y código]]).
-- Solo pasa a `approved` o `rejected` por acción de un moderador.
-- No hay transición a `active` ni `resolved`.
+- Nace `pending` con `verificationStatus = pending`.
+- La aprobación/rechazo la hace un moderador (ver [[Flujo de moderación]]): crea un registro en `Verification` y actualiza `verificationStatus` (+ `status` a `active` o `rejected`).
 
-## Reporte de persona no ubicada (`type=necesita_ayuda`)
+## Reporte de persona no ubicada (`type=need_help`)
 
 ```mermaid
 stateDiagram-v2
@@ -46,25 +46,18 @@ stateDiagram-v2
 ```
 
 - Nace `active` directamente (no hay moderación previa).
-- `resolved` existe en el enum pero **no hay endpoint** que lo asigne todavía → es estado reservado para futuro.
 - En la UI se muestra con badge **"No verificado"** (ver [[Componentes del cliente]]).
+- `resolved` existe pero **no hay endpoint** que lo asigne todavía → estado reservado para futuro.
 
-## Resumen de transiciones implementadas
+## Estados reservados / sin uso
 
-| Desde | Hasta | Quién | Dónde |
-|---|---|---|---|
-| (creación) `ayuda` | `pending` | usuario | `POST /api/points` |
-| (creación) `necesita_ayuda` | `active` | usuario | `POST /api/points` |
-| `pending` | `approved` | moderador | `POST /api/moderator/points/:id/approve` |
-| `pending` | `rejected` | moderador | `POST /api/moderator/points/:id/reject` |
-
-## Estados no usados / huérfanos
-
-- `resolved`: declarado, sin path para llegar a él.
-- En el rediseño: se suman `expired` y `cancelled` (ver [[Modelo de datos (rediseño pendiente)]]).
+- `expired` y `cancelled`: declarados en el enum, sin path para llegar a ellos.
+- `resolved`: declarado, sin endpoint (igual que antes).
 
 ## Relacionado
 
+- [[Modelo de datos]]
+- [[Tipos de Punto - ayuda vs necesita_ayuda]]
 - [[Flujo de creación de un Punto]]
 - [[Flujo de moderación]]
-- [[Tipos de Punto - ayuda vs necesita_ayuda]]
+

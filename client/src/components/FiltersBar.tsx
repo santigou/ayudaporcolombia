@@ -1,20 +1,20 @@
-import type { PointCategory, PointType } from "../types";
-import { CATEGORY_LABELS } from "../types";
+import type { HelpTypeOption, PointType } from "../types";
+import { HELP_TYPES } from "../types";
 
 interface FiltersBarProps {
   type: PointType | "todos";
-  category: PointCategory | "todas";
+  helpType: HelpTypeOption | "todas";
   onTypeChange: (type: PointType | "todos") => void;
-  onCategoryChange: (category: PointCategory | "todas") => void;
+  onHelpTypeChange: (helpType: HelpTypeOption | "todas") => void;
 }
 
 const TYPE_OPTIONS: { value: PointType | "todos"; label: string }[] = [
   { value: "todos", label: "Todos" },
-  { value: "ayuda", label: "Puntos de ayuda" },
-  { value: "necesita_ayuda", label: "Personas no ubicadas" },
+  { value: "offer_help", label: "Puntos de ayuda" },
+  { value: "need_help", label: "Personas no ubicadas" },
 ];
 
-export function FiltersBar({ type, category, onTypeChange, onCategoryChange }: FiltersBarProps) {
+export function FiltersBar({ type, helpType, onTypeChange, onHelpTypeChange }: FiltersBarProps) {
   return (
     <div className="flex flex-col gap-2 p-3 border-b border-gray-200">
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -32,25 +32,25 @@ export function FiltersBar({ type, category, onTypeChange, onCategoryChange }: F
           </button>
         ))}
       </div>
-      {type === "ayuda" && (
+      {type === "offer_help" && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button
-            onClick={() => onCategoryChange("todas")}
+            onClick={() => onHelpTypeChange("todas")}
             className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ${
-              category === "todas" ? "bg-brand-dark text-white" : "bg-gray-100 text-gray-600"
+              helpType === "todas" ? "bg-brand-dark text-white" : "bg-gray-100 text-gray-600"
             }`}
           >
-            Todas las categorías
+            Todos los tipos
           </button>
-          {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+          {HELP_TYPES.map((value) => (
             <button
               key={value}
-              onClick={() => onCategoryChange(value as PointCategory)}
+              onClick={() => onHelpTypeChange(value)}
               className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ${
-                category === value ? "bg-brand-dark text-white" : "bg-gray-100 text-gray-600"
+                helpType === value ? "bg-brand-dark text-white" : "bg-gray-100 text-gray-600"
               }`}
             >
-              {label}
+              {value}
             </button>
           ))}
         </div>

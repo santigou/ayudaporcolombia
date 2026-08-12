@@ -19,44 +19,44 @@ flowchart LR
     Express -->|fotos| FS[("uploads/")]
 ```
 
-## Modelo de datos (actual, simplificado)
+## Modelo de datos (simplificado)
 
 ```mermaid
 erDiagram
-    User ||--o{ Point : "crea"
-    User ||--o{ Point : "revisa (reviewedById)"
-    User ||--o| ModeratorRequest : "envía"
+    User ||--o{ Point : "crea (createdById)"
+    User ||--o{ Verification : "verifica (moderatorId)"
+    User ||--o{ ModeratorRequest : "envía"
     User ||--o{ ModeratorRequest : "revisa (reviewedById)"
+    Point ||--o{ PointLocation : "tiene"
+    PointLocation }o--|| Location : ""
+    Point ||--o{ Contact : "tiene"
+    Point ||--o{ Attachment : "tiene"
+    Point ||--o{ Verification : "historial"
+    Point }o--|| HelpType : "helpTypeId"
     Point {
-        string id PK
-        enum  type "ayuda|necesita_ayuda"
+        string type "need_help|offer_help"
         string title
-        string description
-        float  lat
-        float  lng
-        string addressText
-        enum   category
-        text[] photos
-        string contactInfo
-        string verificationCode
         enum   status
-        string createdById FK
-        string reviewedById FK
+        enum   verificationStatus
+        string helpTypeId FK
     }
 ```
 
-## Ciclo de vida de un Punto de ayuda
+> [!info] Modelo completo
+> Ver [[Modelo de datos]] para todas las tablas y campos (incluye `Supply`/`PointSupply`, `Validation`, `PointUpdate`, etc.).
+
+## Ciclo de vida de un punto offer_help
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: usuario crea (ayuda)
-    pending --> approved: moderador aprueba
+    [*] --> pending: usuario crea (verificationStatus=pending)
+    pending --> active: moderador aprueba
     pending --> rejected: moderador rechaza
-    approved --> [*]
+    active --> [*]
     rejected --> [*]
 ```
 
-## Ciclo de vida de un reporte necesita_ayuda
+## Ciclo de vida de un reporte need_help
 
 ```mermaid
 stateDiagram-v2
@@ -78,12 +78,12 @@ sequenceDiagram
     U->>C: Completa formulario + marca mapa
     C->>A: POST /api/points (multipart)
     A->>A: requireAuth + multer + zod
-    alt type=ayuda
-        A->>DB: crea Point(status=pending, verificationCode)
-        A-->>C: 201 + código
-        C-->>U: "enviado a revisión, tu código es..."
-    else type=necesita_ayuda
-        A->>DB: crea Point(status=active)
+    alt type=offer_help
+        A->>DB: crea Point(pending) + Location + Contact + Attachments
+        A-->>C: 201
+        C-->>U: "enviado a revisión"
+    else type=need_help
+        A->>DB: crea Point(active) + Location + Contact
         A-->>C: 201
         C-->>U: "ya visible, marcado no verificado"
     end
@@ -111,5 +111,5 @@ Ver [[Autenticación JWT + cookies]].
 ## Relacionado
 
 - [[Arquitectura general]]
-- [[Modelo de datos (actual)]]
+- [[Modelo de datos]]
 - [[Estados y ciclos de vida de un Punto]]

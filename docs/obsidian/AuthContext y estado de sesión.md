@@ -30,10 +30,11 @@ useAuth() → {
 ## Tipo `CurrentUser`
 
 ```ts
-{ id, name, email, role, contactInfo?, moderatorRequest?: { status } }
+{ id, email, role, moderatorRequest?: { id, status } | null }
 ```
 
-- `moderatorRequest.status` → para saber si el usuario ya pidió ser moderador.
+> [!warning] Sin `name` ni `contactInfo`
+> A diferencia del modelo anterior, el usuario **no** tiene `name` ni `contactInfo`. La navbar muestra el `email`. `moderatorRequest` (con `id` y `status`) indica si el usuario ya pidió ser moderador.
 
 ## Patrón de uso
 

@@ -6,11 +6,11 @@ tipo: flujo
 
 # Flujo de moderación
 
-Dos colas de trabajo para el moderador: **puntos** y **solicitudes**. Ver [[ModeratorDashboard]] para la UI.
+Dos colas de trabajo para el moderador: **puntos** y **solicitudes**. La UI está en la página `/moderador` (componente `ModeratorDashboard`).
 
-## Cola 1: Puntos de ayuda pendientes
+## Cola 1: Puntos de oferta pendientes
 
-Solo revisan puntos `type=ayuda AND status=pending` (los `necesita_ayuda` **no** se moderan previamente).
+Solo se revisan puntos `type=offer_help AND verificationStatus=pending` (los `need_help` **no** se moderan previamente).
 
 ```mermaid
 sequenceDiagram
@@ -18,20 +18,19 @@ sequenceDiagram
     participant A as API
     participant DB
     M->>A: GET /api/moderator/points/pending
-    A-->>M: lista (incluye createdBy + verificationCode)
-    M->>M: contacta al creador por canal externo, pide código
-    alt código coincide
+    A-->>M: lista (incluye createdBy, contacts, photos)
+    alt aprueba
         M->>A: POST /api/moderator/points/:id/approve
-        A->>DB: status=approved, reviewedById, reviewedAt
-    else no coincide / sospechoso
+        A->>DB: tx { Verification(approved), Point.verificationStatus=approved, status=active }
+    else rechaza
         M->>A: POST /api/moderator/points/:id/reject
-        A->>DB: status=rejected, reviewedById, reviewedAt
+        A->>DB: tx { Verification(rejected,note?), Point.verificationStatus=rejected, status=rejected }
     end
 ```
 
 - Endpoints: `GET /points/pending`, `POST /points/:id/approve`, `POST /points/:id/reject`.
-- Guardan quién revisó (`reviewedById`) y cuándo (`reviewedAt`).
-- Si el punto no es `ayuda` o no está `pending` → 404.
+- Cada acción **crea un registro en `Verification`** (quién moderó, estado, nota) y actualiza `verificationStatus` + `status`. Así queda historial.
+- Si el punto no es `offer_help` o no está pendiente → 404.
 
 ## Cola 2: Solicitudes de moderador
 
@@ -63,6 +62,6 @@ sequenceDiagram
 ## Relacionado
 
 - [[Roles y permisos]]
-- [[Sistema de verificación y código]]
+- [[Verificación de puntos]]
 - [[API REST - endpoints]]
 - [[Estados y ciclos de vida de un Punto]]

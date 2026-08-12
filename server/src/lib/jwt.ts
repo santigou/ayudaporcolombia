@@ -1,9 +1,12 @@
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret) {
   throw new Error("JWT_SECRET no está definido en el entorno");
 }
+// Const tipada como `string` (no `string | undefined`) para que los overloads
+// de jsonwebtoken resuelvan correctamente.
+const JWT_SECRET: string = rawSecret;
 
 export type TokenPayload = {
   userId: string;
@@ -15,5 +18,5 @@ export function signToken(payload: TokenPayload): string {
 }
 
 export function verifyToken(token: string): TokenPayload {
-  return jwt.verify(token, JWT_SECRET) as TokenPayload;
+  return jwt.verify(token, JWT_SECRET) as unknown as TokenPayload;
 }

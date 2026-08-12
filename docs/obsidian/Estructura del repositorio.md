@@ -17,9 +17,9 @@ ayudaporcolombia/
 │   ├── package.json        # type: module, scripts prisma/seed
 │   ├── tsconfig.json       # NodeNext, strict
 │   ├── prisma/
-│   │   ├── schema.prisma   # ⚠️ rediseño pendiente (no migrado)
+│   │   ├── schema.prisma   # modelo rico vigente (migrado)
 │   │   └── migrations/
-│   │       └── 20260811160618_init/migration.sql
+│   │       └── 20260812160000_init/migration.sql
 │   ├── src/
 │   │   ├── index.ts        # listen en PORT
 │   │   ├── app.ts          # crea app Express, monta rutas + SPA

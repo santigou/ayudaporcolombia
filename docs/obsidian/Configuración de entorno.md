@@ -17,7 +17,7 @@ Definidas en `.env.example`. **Se copia a `server/.env`** antes de arrancar (`cp
 | `JWT_SECRET` | (requerido) | Firma JWT. **Debe cambiarse** en producción. |
 | `CLIENT_ORIGIN` | `http://localhost:5173` | Origen permitido en CORS (la URL del Vite dev). |
 | `NODE_ENV` | — | Si `=production`, cookie va con `secure`. |
-| `SEED_MODERATOR_NAME` | "Moderador Principal" | Usado por el seed. |
+| `SEED_MODERATOR_NAME` | "Moderador Principal" | **Legacy**: queda en `.env` pero el seed actual **no lo usa** (el modelo de `User` no tiene `name`). |
 | `SEED_MODERATOR_EMAIL` | `moderador@ayudaporcolombia.org` | Seed. |
 | `SEED_MODERATOR_PASSWORD` | (requerido) | Seed. Cambiar en real. |
 

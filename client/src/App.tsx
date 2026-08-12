@@ -21,7 +21,7 @@ function Navbar() {
         )}
         {user ? (
           <>
-            <span className="text-gray-500 hidden sm:inline">{user.name}</span>
+            <span className="text-gray-500 hidden sm:inline">{user.email}</span>
             <button onClick={() => logout()} className="text-gray-600 hover:text-brand-dark">
               Salir
             </button>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ApiError } from "../api/client";
+import { hasDraft } from "../components/create/draft";
 
 export function Login() {
   const { login } = useAuth();
@@ -17,7 +18,9 @@ export function Login() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/");
+      // Si venía creando un punto y fue a iniciar sesión, lo devolvemos al asistente
+      // (su progreso quedó guardado en sessionStorage).
+      navigate(hasDraft() ? "/crear" : "/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos iniciar sesión.");
     } finally {

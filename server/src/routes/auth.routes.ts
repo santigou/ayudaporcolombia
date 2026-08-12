@@ -15,11 +15,11 @@ const COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
+// El rediseño eliminó `name` y `contactInfo` de `User`. El registro queda solo
+// con email + contraseña (y, opcionalmente, una solicitud para ser moderador).
 const registerSchema = z.object({
-  name: z.string().min(2).max(100),
   email: z.string().email(),
   password: z.string().min(8).max(100),
-  contactInfo: z.string().max(200).optional(),
   wantsModerator: z.boolean().optional(),
 });
 
@@ -28,7 +28,7 @@ authRouter.post("/register", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
   }
-  const { name, email, password, contactInfo, wantsModerator } = parsed.data;
+  const { email, password, wantsModerator } = parsed.data;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -38,19 +38,15 @@ authRouter.post("/register", async (req, res) => {
   const passwordHash = await hashPassword(password);
   const user = await prisma.user.create({
     data: {
-      name,
       email,
       passwordHash,
-      contactInfo,
-      ...(wantsModerator
-        ? { moderatorRequest: { create: { status: "pending" } } }
-        : {}),
+      ...(wantsModerator ? { moderatorRequests: { create: { status: "pending" } } } : {}),
     },
   });
 
   const token = signToken({ userId: user.id, role: user.role });
   res.cookie("token", token, COOKIE_OPTIONS);
-  res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  res.status(201).json({ id: user.id, email: user.email, role: user.role });
 });
 
 const loginSchema = z.object({
@@ -72,7 +68,7 @@ authRouter.post("/login", async (req, res) => {
 
   const token = signToken({ userId: user.id, role: user.role });
   res.cookie("token", token, COOKIE_OPTIONS);
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  res.json({ id: user.id, email: user.email, role: user.role });
 });
 
 authRouter.post("/logout", (_req, res) => {
@@ -85,15 +81,23 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     where: { id: req.user!.userId },
     select: {
       id: true,
-      name: true,
       email: true,
       role: true,
-      contactInfo: true,
-      moderatorRequest: { select: { status: true } },
+      moderatorRequests: {
+        select: { id: true, status: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
     },
   });
   if (!user) {
     return res.status(404).json({ error: "Usuario no encontrado" });
   }
-  res.json(user);
+  const request = user.moderatorRequests[0] ?? null;
+  res.json({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    moderatorRequest: request ? { id: request.id, status: request.status } : null,
+  });
 });

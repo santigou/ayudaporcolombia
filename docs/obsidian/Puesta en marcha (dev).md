@@ -55,8 +55,8 @@ Pasos para correr el proyecto en local. Fuente: `README.md`.
 - **tsx watch** (servidor) reinicia al cambiar `server/src/**`.
 - **Prisma Client** se genera con `prisma:migrate`/`prisma:generate`. Si cambias el schema, vuelve a migrar.
 
-> [!warning] Schema divergente
-> Si corres `prisma:migrate dev` hoy con el `schema.prisma` rediseñado, intentará crear la nueva estructura. Ver [[Estado del proyecto y divergencias]] antes.
+> [!info] Schema sincronizado
+> El `schema.prisma` y las migraciones están alineados (modelo rico). `prisma migrate status` reporta *up to date*. Ver [[Modelo de datos]] y [[Estado del proyecto]].
 
 ## Relacionado
 

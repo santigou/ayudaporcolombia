@@ -31,7 +31,7 @@ comparePassword(plain, hash)  // bcrypt.compare
 
 ## `code.ts`
 
-Ver [[Sistema de verificación y código]]. `generateVerificationCode(length=6)` con alfabeto no ambiguo. Usa `Math.random()`.
+`generateVerificationCode(length=6)` con alfabeto no ambiguo. Usa `Math.random()`. **Ya no se usa** en el flujo de creación: el modelo vigente no tiene `verificationCode` (ver [[Verificación de puntos]]). Candidato a eliminar (ver [[Backlog]]).
 
 ## Notas
 

@@ -19,7 +19,7 @@ Solo dos (`enum Role`):
 ### `moderator`
 - Todo lo de `user`.
 - Ver panel `/moderador` y llamar endpoints bajo `/api/moderator/*`:
-  - Listar y aprobar/rechazar puntos `ayuda` pendientes.
+  - Listar y aprobar/rechazar puntos `offer_help` pendientes de verificación.
   - Listar y aprobar/rechazar solicitudes de moderador.
   - Al **aprobar una solicitud**, se asciende a ese usuario a `moderator` (transacción).
 
@@ -42,13 +42,10 @@ El router `moderatorRouter` aplica `requireAuth` + `requireModerator` a **todo**
 - El link a `/moderador` solo se muestra si `user.role === "moderator"` (Navbar).
 - `ModeratorDashboard` comprueba rol y muestra mensaje si no aplica. **No es seguridad real**: el backend sigue siendo la fuente de verdad.
 
-## En el rediseño
-
-Los roles se mantienen (`user`, `moderator`) — ver [[Modelo de datos (rediseño pendiente)]]. No se planea un rol `admin`.
-
 ## Relacionado
 
 - [[Autenticación JWT + cookies]]
 - [[Middleware]]
 - [[Flujo de moderación]]
+- [[Modelo de datos]]
 - [[Seguridad y consideraciones]]

@@ -12,7 +12,7 @@ Punto de entrada a la base de conocimiento del proyecto **Ayuda por Colombia**.
 
 - [[Visión general del proyecto]] — qué es, para quién, qué resuelve
 - [[Objetivos y restricciones]] — metas, alcance y límites
-- [[Estado del proyecto y divergencias]] — ⚠️ lo implementado vs. lo rediseñado
+- [[Estado del proyecto]] — modelo vigente (plataforma de ayuda estructurada)
 
 ## Arquitectura
 
@@ -23,15 +23,14 @@ Punto de entrada a la base de conocimiento del proyecto **Ayuda por Colombia**.
 
 ## Modelo de dominio
 
-- [[Modelo de datos (actual)]] — el schema con el que el código realmente funciona
-- [[Modelo de datos (rediseño pendiente)]] — el schema.prisma nuevo, no migrado
-- [[Estados y ciclos de vida de un Punto]] — `pending → approved`, `active → resolved`
+- [[Modelo de datos]] — el schema vigente (modelo rico, migrado)
+- [[Estados y ciclos de vida de un Punto]] — `pending → active`, estados y visibilidad
 
 ## Funcionalidades
 
-- [[Tipos de Punto - ayuda vs necesita_ayuda]] — la distinción central
+- [[Tipos de Punto - ayuda vs necesita_ayuda]] — la distinción central (`offer_help` / `need_help`)
 - [[Flujo de creación de un Punto]] — usuario → mapa → moderación
-- [[Sistema de verificación y código]] — por qué los puntos de ayuda llevan código
+- [[Verificación de puntos]] — cómo se valida un `offer_help` (tabla `Verification`)
 - [[Roles y permisos]] — user / moderator
 - [[Flujo de moderación]] — revisión de puntos y solicitudes
 - [[Mapa interactivo]] — MapLibre + OpenFreeMap

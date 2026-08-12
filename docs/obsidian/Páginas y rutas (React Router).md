@@ -23,7 +23,7 @@ Definidas en `client/src/App.tsx`. Router en `main.tsx` con `BrowserRouter`.
 - Visible siempre. Muestra:
   - Link a "Ayuda por Colombia" (home).
   - "Moderación" **solo** si `user.role === "moderator"`.
-  - Si logueado: nombre + "Salir".
+  - Si logueado: email + "Salir".
   - Si no: "Entrar" + "Registrarse".
 
 ## Layout
@@ -35,7 +35,7 @@ Definidas en `client/src/App.tsx`. Router en `main.tsx` con `BrowserRouter`.
 ## Sin rutas protegidas reales
 
 No hay `<PrivateRoute>` ni `loader` que impida cargar `/crear` o `/moderador` si no hay sesión. La protección es:
-- `CreatePoint` muestra mensaje y botón si `!user`.
+- `CreatePoint` se carga siempre; solo bloquea la publicación de `offer_help` sin sesión (aviso + botón a `/login`). `need_help` puede crearse anónimamente.
 - `ModeratorDashboard` muestra mensaje si `role !== moderator`.
 - El **backend** deniega la acción real → es la fuente de verdad.
 

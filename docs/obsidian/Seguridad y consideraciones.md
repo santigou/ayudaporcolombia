@@ -19,7 +19,7 @@ Inventario de riesgos y mitigaciones actuales / pendientes.
 | Validación de input con zod en cada endpoint | `auth.routes.ts`, `points.routes.ts` |
 | `JWT_SECRET` obligatorio (fail-fast) | `jwt.ts` |
 | `.env` en `.gitignore` | raíz |
-| Puntos públicos filtrados por estado | `points.routes.ts` |
+| Puntos públicos filtrados por visibilidad | `points.routes.ts` |
 
 ## ⚠️ Mejorable
 
@@ -31,9 +31,7 @@ Inventario de riesgos y mitigaciones actuales / pendientes.
 | **Auto-moderación** posible | Sin control | bloquear que un moderador apruebe su propio punto/solicitud |
 | **Validación de imágenes solo por MIME** | `fileFilter` usa `mimetype` | validar magic bytes o usar `sharp` |
 | **Fotos huérfanas** | No se borran al rechazar | garbage collector al rechazar/eliminar |
-| **Sin expiry de `verificationCode`** | El código no caduca | añadir TTL o eliminar tras aprobación |
-| **`Math.random()` para códigos** | No criptográfico | aceptable para referencia, no para secretos |
-| **`GET /api/points/:id` devuelve datos sensibles** | `contactInfo`, `verificationCode`, `reviewedById` | seleccionar campos como en el listado |
+| **`GET /api/points/:id`** devuelve datos sensibles | `contacts` del punto | el listado omite contacto; el detalle lo incluye (revisar si es intencional) |
 | **Path `clientDist` relativo a cwd** | Prod depende del directorio de lanzamiento | usar `__dirname` o path absoluto |
 | **Credenciales DB débiles** (`ayuda:ayuda`) | Solo local | cambiar en prod |
 | **Sin logs estructurados ni monitoreo** | `console.error` | pino/winston + métricas |
@@ -42,8 +40,8 @@ Inventario de riesgos y mitigaciones actuales / pendientes.
 
 ## Privacidad
 
-- El campo `contactInfo` de User es libre (texto) → los usuarios pueden meter teléfono/Instagram. Eso es dato personal.
-- `Point.contactInfo` (público en detalle) también. En una emergencia es el punto, pero conviene avisar al usuario qué se publica.
+- Los contactos de un punto (`Contact`) son texto libre → los usuarios pueden meter teléfono/Instagram. Es dato personal.
+- Los contactos visibles públicamente son los que tienen `isPublic=true`. El listado público **no** los devuelve; el detalle sí. En una emergencia es el punto, pero conviene avisar al usuario qué se publica.
 
 ## Disponibilidad
 
@@ -54,6 +52,6 @@ Inventario de riesgos y mitigaciones actuales / pendientes.
 
 - [[Autenticación JWT + cookies]]
 - [[Subida de fotos]]
-- [[Sistema de verificación y código]]
+- [[Verificación de puntos]]
 - [[Backlog]]
 - [[Decisiones de diseño]]

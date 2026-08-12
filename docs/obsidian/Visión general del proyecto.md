@@ -12,8 +12,8 @@ tipo: referencia
 
 Coordina dos tipos de información sobre un mapa:
 
-1. **Puntos de ayuda** (`ayuda`) — refugios, puntos de alimentos, agua, atención médica, etc. **Validados por moderadores** antes de publicarse.
-2. **Reportes de personas no ubicadas** (`necesita_ayuda`) — publicaciones **inmediatas** marcadas como *no verificadas*, para maximizar la velocidad ante una urgencia.
+1. **Puntos de ayuda** (`offer_help`) — refugios, puntos de alimentos, agua, atención médica, etc. **Validados por moderadores** antes de publicarse.
+2. **Reportes de personas no ubicadas** (`need_help`) — publicaciones **inmediatas** marcadas como *no verificadas*, para maximizar la velocidad ante una urgencia.
 
 ## Problema que resuelve
 
@@ -26,8 +26,8 @@ La solución del proyecto es un **modelo dual**:
 
 | Tipo | Velocidad | Confiabilidad |
 |---|---|---|
-| `ayuda` | Moderada (lento) | Verificada por moderador |
-| `necesita_ayuda` | Inmediata | Marcada como *no verificada* |
+| `offer_help` | Moderada (lento) | Verificada por moderador |
+| `need_help` | Inmediata | Marcada como *no verificada* |
 
 Ver [[Tipos de Punto - ayuda vs necesita_ayuda]].
 
@@ -48,5 +48,5 @@ Monolito web (un solo deploy) — cliente React + API Node/Express sobre Postgre
 ## Relacionado
 
 - [[Objetivos y restricciones]]
-- [[Estado del proyecto y divergencias]]
+- [[Estado del proyecto]]
 - [[Decisiones de diseño]]

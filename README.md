@@ -58,7 +58,7 @@ El servidor Express sirve el build de `client/dist` y expone la API bajo `/api`.
 
 ## Roles
 
-- **Usuario normal**: se registra, puede crear puntos de ayuda (quedan pendientes de revisión con un código de verificación) y reportes de personas no ubicadas (se publican de inmediato, marcados como no verificados).
+- **Usuario normal**: se registra, puede crear puntos de ayuda (quedan pendientes de verificación por un moderador) y reportes de personas no ubicadas (se publican de inmediato, marcados como no verificados).
 - **Moderador**: revisa y aprueba/rechaza puntos de ayuda pendientes, y aprueba/rechaza solicitudes de otros usuarios que quieren ser moderadores.
 
 ## Pendiente para después
