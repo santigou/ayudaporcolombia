@@ -39,6 +39,9 @@ interface PointDetailContentProps {
   // Aviso opcional (texto) que se muestra resaltado bajo el título, p. ej. para
   // puntos pendientes abiertos por link compartible (PointByCode).
   pendingNotice?: string;
+  // Verificación oficial de moderador (need_help): estado + callback.
+  moderatorVerifying?: boolean;
+  onModeratorVerify?: () => void;
 }
 
 type Tab = "info" | "novedades";
@@ -82,10 +85,18 @@ export function PointDetailContent({
   onValidate,
   nearbyPoints = [],
   pendingNotice,
+  moderatorVerifying = false,
+  onModeratorVerify,
 }: PointDetailContentProps) {
   const [tab, setTab] = useState<Tab>("info");
   const [activeLocIndex, setActiveLocIndex] = useState(0); // ubicación activa del mini-mapa
   const isNeedHelp = point.type === "need_help";
+  // El verificationStatus puede cambiar in-place (moderador verifica un need_help).
+  // Lo.trackeamos localmente para que la UI reaccione sin esperar a recargar el listado.
+  const [verificationStatus, setVerificationStatus] = useState(point.verificationStatus);
+  useEffect(() => {
+    setVerificationStatus(point.verificationStatus);
+  }, [point.verificationStatus]);
   const address = locationLabel(point.location);
   // Ubicaciones del punto para el mini-mapa: las del detalle si ya cargaron;
   // si no, la del listado como fallback (siempre ≥1 al renderizar el mini-mapa).
@@ -209,9 +220,25 @@ export function PointDetailContent({
                     userValidated={userValidated}
                     validating={validating}
                     onValidate={onValidate ?? (() => {})}
+                    pointType={point.type}
+                    verificationStatus={verificationStatus}
+                    onModeratorVerify={
+                      onModeratorVerify
+                        ? () => {
+                            onModeratorVerify();
+                            setVerificationStatus("approved");
+                          }
+                        : undefined
+                    }
+                    moderatorVerifying={moderatorVerifying}
                     className="mt-2"
                   />
-                  {isNeedHelp ? (
+                  {isNeedHelp && verificationStatus === "approved" ? (
+                    <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                      <p className="font-semibold">✓ Punto verificado</p>
+                      <p>Un moderador confirmó que este reporte es verídico.</p>
+                    </div>
+                  ) : isNeedHelp ? (
                     <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                       <p className="font-semibold">Información no verificada</p>
                       <p>

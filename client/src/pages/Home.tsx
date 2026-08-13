@@ -67,13 +67,21 @@ export function Home() {
   const handleSelectPoint = useCallback((point: Point) => setSelected(point), []);
   const handleBoundsChange = useCallback((next: BBox) => setBbox(next), []);
 
+  // Cuando un punto cambia (p. ej. moderador lo verifica oficialmente), actualiza
+  // tanto el `selected` como el elemento correspondiente en la lista de puntos,
+  // para que el badge de la tarjeta y el mapa reflejen el nuevo estado al instante.
+  const handlePointUpdated = useCallback((updated: Point) => {
+    setSelected(updated);
+    setPoints((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+  }, []);
+
   const selectedId = selected?.id;
   const sidePanel = useMemo(() => {
     if (selected) {
       // En móvil el detalle se monta como overlay (HomeBottomSheet) fuera del
       // aside; aquí devolvemos null para no duplicar contenido en el panel.
       if (!isDesktop) return null;
-      return <PointDetail point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} />;
+      return <PointDetail point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} onPointUpdated={handlePointUpdated} />;
     }
     return (
       <>
@@ -127,7 +135,7 @@ export function Home() {
 
       {/* Overlay móvil: hoja tipo Airbnb sobre el mapa con galería + mini-mapa. */}
       {!isDesktop && selected && (
-        <HomeBottomSheet point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} />
+        <HomeBottomSheet point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} onPointUpdated={handlePointUpdated} />
       )}
     </div>
   );

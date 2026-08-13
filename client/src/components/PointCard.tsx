@@ -36,9 +36,15 @@ export function PointCard({ point, selected, onClick }: PointCardProps) {
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-semibold text-gray-900 line-clamp-1">{point.title}</h3>
             {isNeedHelp ? (
-              <span className="shrink-0 rounded-full bg-red-100 text-red-700 text-[11px] px-2 py-0.5 font-medium">
-                No verificado
-              </span>
+              point.verificationStatus === "approved" ? (
+                <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 text-[11px] px-2 py-0.5 font-medium">
+                  ✓ Verificado
+                </span>
+              ) : (
+                <span className="shrink-0 rounded-full bg-red-100 text-red-700 text-[11px] px-2 py-0.5 font-medium">
+                  No verificado
+                </span>
+              )
             ) : point.helpType ? (
               <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 text-[11px] px-2 py-0.5 font-medium">
                 {point.helpType}

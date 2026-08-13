@@ -106,6 +106,8 @@ export interface PointUpdateItem {
   id: string;
   message: string;
   createdAt: string;
+  // Email del autor (null no debería darse: publicar exige sesión).
+  createdByEmail: string | null;
 }
 
 export interface CurrentUser {

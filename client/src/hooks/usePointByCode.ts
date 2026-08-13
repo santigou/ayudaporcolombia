@@ -17,6 +17,8 @@ interface UsePointByCodeResult {
   error: string | null;
   updates: PointUpdateItem[];
   validating: boolean;
+  moderatorVerifying: boolean;
+  moderatorVerify: () => Promise<void>;
   message: string;
   setMessage: (v: string) => void;
   submitting: boolean;
@@ -37,6 +39,7 @@ export function usePointByCode(code: string): UsePointByCodeResult {
   const [error, setError] = useState<string | null>(null);
   const [updates, setUpdates] = useState<PointUpdateItem[]>([]);
   const [validating, setValidating] = useState(false);
+  const [moderatorVerifying, setModeratorVerifying] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -100,6 +103,20 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     }
   }
 
+  // Verificación oficial de moderador (need_help): actualiza el punto in-place.
+  async function moderatorVerify() {
+    if (!point) return;
+    setModeratorVerifying(true);
+    try {
+      await api.post(`/moderator/points/${point.id}/verify`);
+      setPoint((prev) => (prev ? { ...prev, verificationStatus: "approved" } : prev));
+    } catch {
+      /* error silencioso: el moderador puede reintentar */
+    } finally {
+      setModeratorVerifying(false);
+    }
+  }
+
   async function submitNovedad() {
     if (!point || !message.trim()) return;
     setSubmitting(true);
@@ -122,6 +139,8 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     error,
     updates,
     validating,
+    moderatorVerifying,
+    moderatorVerify,
     message,
     setMessage,
     submitting,

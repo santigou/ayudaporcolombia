@@ -69,6 +69,13 @@ export function PointNovedades({
           <ul className="flex flex-col gap-2">
             {updates.map((u) => (
               <li key={u.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                {/* Autor: avatar con la inicial + email (consistente con el detalle). */}
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-200 text-[10px] font-bold uppercase text-gray-600">
+                    {u.createdByEmail ? u.createdByEmail.charAt(0) : "?"}
+                  </span>
+                  <span className="text-[11px] font-medium text-gray-600">{u.createdByEmail ?? "Anónimo"}</span>
+                </div>
                 <p className="whitespace-pre-wrap text-sm text-gray-700">{u.message}</p>
                 <p className="mt-1 text-[11px] text-gray-400">
                   {new Date(u.createdAt).toLocaleString()}

@@ -154,14 +154,20 @@ export class PointService {
 
   async getUpdates(id: string) {
     const point = await this.prisma.point.findUnique({ where: { id }, select: { id: true, type: true, status: true, verificationStatus: true } });
-    if (!point || !isPubliclyVisible(point)) throw new NotFoundException('Punto no encontrado');
-    return this.prisma.pointUpdate.findMany({ where: { pointId: point.id }, orderBy: { createdAt: 'desc' }, select: { id: true, message: true, createdAt: true } });
+    if (!point || !isAccessibleByCode(point)) throw new NotFoundException('Punto no encontrado');
+    const updates = await this.prisma.pointUpdate.findMany({
+      where: { pointId: point.id },
+      orderBy: { createdAt: 'desc' },
+      include: { createdBy: { select: { email: true } } },
+    });
+    return updates.map((u) => ({ id: u.id, message: u.message, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null }));
   }
 
   async createUpdate(id: string, userId: string, message: string) {
     const point = await this.prisma.point.findUnique({ where: { id }, select: { id: true } });
     if (!point) throw new NotFoundException('Punto no encontrado');
-    return this.prisma.pointUpdate.create({ data: { pointId: point.id, createdById: userId, message }, select: { id: true, message: true, createdAt: true } });
+    const u = await this.prisma.pointUpdate.create({ data: { pointId: point.id, createdById: userId, message }, include: { createdBy: { select: { email: true } } } });
+    return { id: u.id, message: u.message, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null };
   }
 
   // --- Creación de punto (multipart con fotos) ---

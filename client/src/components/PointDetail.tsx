@@ -6,6 +6,7 @@ interface PointDetailProps {
   point: Point;
   nearbyPoints?: Point[];
   onClose: () => void;
+  onPointUpdated?: (updated: Point) => void;
 }
 
 // Detalle de un punto en el panel lateral derecho (desktop). Estilo Airbnb:
@@ -13,8 +14,15 @@ interface PointDetailProps {
 // el contenido con pestañas (Información / Novedades). La galería vive dentro
 // de la pestaña Información; en Novedades, el formulario queda fijo y solo la
 // lista de mensajes hace scroll (estilo chat).
-export function PointDetail({ point, nearbyPoints, onClose }: PointDetailProps) {
+export function PointDetail({ point, nearbyPoints, onClose, onPointUpdated }: PointDetailProps) {
   const detail = usePointDetail(point.id);
+
+  // Verificación oficial de moderador: tras éxito, propaga el nuevo
+  // verificationStatus al Home (actualiza `selected` y la lista de puntos).
+  const handleModeratorVerify = async () => {
+    await detail.moderatorVerify();
+    onPointUpdated?.({ ...point, verificationStatus: "approved" });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -33,6 +41,8 @@ export function PointDetail({ point, nearbyPoints, onClose }: PointDetailProps) 
           userValidated={detail.userValidated}
           validating={detail.validating}
           onValidate={detail.validate}
+          moderatorVerifying={detail.moderatorVerifying}
+          onModeratorVerify={handleModeratorVerify}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

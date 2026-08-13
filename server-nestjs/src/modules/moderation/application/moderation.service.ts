@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
 
 function primaryLocation(locs: any[]) {
@@ -62,6 +62,25 @@ export class ModerationService {
     const [verification] = await this.prisma.$transaction([
       this.prisma.verification.create({ data: { pointId: id, moderatorId, status: 'rejected', note } }),
       this.prisma.point.update({ where: { id }, data: { verificationStatus: 'rejected', status: 'rejected' } }),
+    ]);
+    return verification;
+  }
+
+  // Verificación oficial de un need_help por un moderador. A diferencia de
+  // approvePoint (que publica un offer_help pendiente), aquí el punto YA es
+  // público (active); solo se le añade el sello de verificación oficial
+  // (verificationStatus → approved) sin cambiar su status ni visibilidad.
+  async verifyPoint(id: string, moderatorId: string) {
+    const point = await this.prisma.point.findUnique({ where: { id } });
+    if (!point || point.type !== 'need_help') {
+      throw new NotFoundException('Punto no encontrado');
+    }
+    if (point.verificationStatus === 'approved') {
+      throw new BadRequestException('Este punto ya está verificado');
+    }
+    const [verification] = await this.prisma.$transaction([
+      this.prisma.verification.create({ data: { pointId: id, moderatorId, status: 'approved' } }),
+      this.prisma.point.update({ where: { id }, data: { verificationStatus: 'approved' } }),
     ]);
     return verification;
   }

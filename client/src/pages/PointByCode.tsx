@@ -16,11 +16,13 @@ export function PointByCode() {
     error,
     updates,
     validating,
+    moderatorVerifying,
     message,
     setMessage,
     submitting,
     submitNovedad,
     validate,
+    moderatorVerify,
   } = usePointByCode(code);
 
   if (loading) return <div className="p-6 text-center text-sm text-gray-500">Cargando…</div>;
@@ -59,6 +61,8 @@ export function PointByCode() {
           userValidated={point.userValidated}
           validating={validating}
           onValidate={validate}
+          moderatorVerifying={moderatorVerifying}
+          onModeratorVerify={moderatorVerify}
           updates={updates}
           contacts={point.contacts}
           locations={point.locations}

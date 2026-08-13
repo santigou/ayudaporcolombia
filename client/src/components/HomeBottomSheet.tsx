@@ -8,6 +8,7 @@ interface HomeBottomSheetProps {
   point: Point;
   nearbyPoints?: Point[];
   onClose: () => void;
+  onPointUpdated?: (updated: Point) => void;
 }
 
 // Hoja inferior tipo Airbnb para móvil: cubre casi toda la pantalla sobre el
@@ -17,10 +18,17 @@ interface HomeBottomSheetProps {
 //    pestañas Información / Novedades. En Información, el mapa queda fijado y
 //    solo el texto scrolla; en Novedades, el formulario queda fijo y solo la
 //    lista de mensajes hace scroll (el mapa no se muestra).
-export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomSheetProps) {
+export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }: HomeBottomSheetProps) {
   const detail = usePointDetail(point.id);
   const isNeedHelp = point.type === "need_help";
   const address = locationLabel(point.location);
+
+  // Verificación oficial de moderador: tras éxito, propaga el nuevo
+  // verificationStatus al Home (actualiza `selected` y la lista de puntos).
+  const handleModeratorVerify = async () => {
+    await detail.moderatorVerify();
+    onPointUpdated?.({ ...point, verificationStatus: "approved" });
+  };
 
   // Cerrar con tecla Escape (accesibilidad).
   useEffect(() => {
@@ -45,9 +53,15 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomShee
         <h2 className="pr-10 text-base font-bold text-gray-900">{point.title}</h2>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {isNeedHelp ? (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
-              No verificado
-            </span>
+            point.verificationStatus === "approved" ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                ✓ Verificado
+              </span>
+            ) : (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                No verificado
+              </span>
+            )
           ) : point.helpType ? (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
               {point.helpType}
@@ -75,6 +89,10 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomShee
           userValidated={detail.userValidated}
           validating={detail.validating}
           onValidate={detail.validate}
+          pointType={point.type}
+          verificationStatus={point.verificationStatus}
+          onModeratorVerify={handleModeratorVerify}
+          moderatorVerifying={detail.moderatorVerifying}
           className="mt-2"
         />
       </header>
@@ -91,6 +109,8 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomShee
           userValidated={detail.userValidated}
           validating={detail.validating}
           onValidate={detail.validate}
+          moderatorVerifying={detail.moderatorVerifying}
+          onModeratorVerify={handleModeratorVerify}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

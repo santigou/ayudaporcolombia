@@ -26,6 +26,11 @@ export class ModerationController {
     return this.moderationService.rejectPoint(id, req.user!.userId, body.note);
   }
 
+  @Post('points/:id/verify')
+  async verifyPoint(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.moderationService.verifyPoint(id, req.user!.userId);
+  }
+
   @Get('requests')
   async pendingRequests() {
     return this.moderationService.getPendingRequests();

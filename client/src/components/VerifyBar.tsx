@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useLoginModal } from "../context/LoginModalContext";
+import type { PointType, VerificationStatus } from "../types";
 
 interface VerifyBarProps {
   code: string;
@@ -9,6 +10,11 @@ interface VerifyBarProps {
   validating: boolean;
   onValidate: () => void;
   className?: string;
+  // Verificación oficial de moderador (solo need_help pendientes).
+  pointType: PointType;
+  verificationStatus: VerificationStatus;
+  onModeratorVerify?: () => void;
+  moderatorVerifying?: boolean;
 }
 
 // Barra de verificación/compartir: muestra el código del punto (copiable), un
@@ -16,11 +22,29 @@ interface VerifyBarProps {
 // La verificación NO aprueba el punto; solo suma evidencia para el moderador.
 // Si no hay sesión al pulsar "Verificar", abre el modal de login en vez de llamar
 // al endpoint (mejor UX que navegar a /login o fallar silenciosamente).
-export function VerifyBar({ code, validationCount, userValidated, validating, onValidate, className = "" }: VerifyBarProps) {
+// Además, si el usuario es moderador y el punto es need_help sin verificar, muestra
+// un botón para verificación oficial (cambia el badge a "Verificado").
+export function VerifyBar({
+  code,
+  validationCount,
+  userValidated,
+  validating,
+  onValidate,
+  className = "",
+  pointType,
+  verificationStatus,
+  onModeratorVerify,
+  moderatorVerifying = false,
+}: VerifyBarProps) {
   const { user } = useAuth();
   const loginModal = useLoginModal();
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}/p/${code}`;
+
+  const isModerator = user?.role === "moderator";
+  // El moderador solo puede verificar oficialmente need_help que aún no lo estén.
+  const canModeratorVerify =
+    isModerator && pointType === "need_help" && verificationStatus === "pending" && !!onModeratorVerify;
 
   function handleValidate() {
     if (!user) {
@@ -78,6 +102,17 @@ export function VerifyBar({ code, validationCount, userValidated, validating, on
       >
         {copied ? "✓ Copiado" : "Compartir"}
       </button>
+      {canModeratorVerify && (
+        <button
+          type="button"
+          onClick={onModeratorVerify}
+          disabled={moderatorVerifying}
+          className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+          title="Marcar este punto como verificado oficialmente"
+        >
+          {moderatorVerifying ? "…" : "✓ Verificar oficial"}
+        </button>
+      )}
     </div>
   );
 }
