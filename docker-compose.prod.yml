@@ -9,6 +9,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: apc-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ayuda}
@@ -16,7 +17,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ayudaporcolombia}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Sin puerto expuesto al host: solo accesible dentro de la red de compose.
+    # Accesible desde la red local (LAN): otros equipos se conectan con un
+    # cliente SQL a <ip-del-servidor>:5434 (user=POSTGRES_USER, db=POSTGRES_DB).
+    # Para restringir a SOLO este host (localhost), cambia a "127.0.0.1:5434:5432".
+    ports:
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ayuda} -d ${POSTGRES_DB:-ayudaporcolombia}"]
       interval: 5s
@@ -29,6 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: back
+    container_name: apc-back
     restart: unless-stopped
     depends_on:
       postgres:
@@ -60,6 +66,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: front
+    container_name: apc-front
     restart: unless-stopped
     depends_on:
       - back
@@ -70,6 +77,7 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
+    container_name: apc-tunnel
     restart: unless-stopped
     depends_on:
       - front
