@@ -96,8 +96,12 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 - Migraciones y moderador inicial se aplican automáticamente al arrancar `app`.
-- Fotos subidas y datos de la BD persisten en volúmenes (`uploads`, `pgdata`).
+- Los datos de la BD persisten en el volumen `pgdata`.
+- Las fotos **no** se guardan en este contenedor: van al SeaweedFS (`j4f-storage`)
+  por la API S3 (ver `docs/seaweedfs-s3-config.md`).
 - La app queda accesible en `https://ayuda.tudominio.com` (HTTPS por Cloudflare).
+
+> Guía de despliegue paso a paso (incluyendo SeaweedFS + CORS): `docs/DEPLOY.md`
 
 ### Comandos útiles
 

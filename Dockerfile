@@ -11,7 +11,7 @@ COPY client/package.json ./client/
 RUN npm ci
 
 # Resto del código fuente y build de cliente + servidor (npm workspaces).
-COPY ./
+COPY . .
 RUN npm run build
 
 # Genera el cliente Prisma (motor de consulta) dentro de node_modules.
