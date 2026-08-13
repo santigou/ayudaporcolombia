@@ -34,9 +34,15 @@ FROM build-base AS front-build
 RUN npm run build -w client
 
 # ============================ Back runtime ============================
-# Debian slim: Prisma funciona sin instalaciones extra (trae libssl3 + glibc).
+# Debian slim (glibc): base recomendada por Prisma. Falta instalar `openssl`
+# (bookworm-slim no lo incluye) — se hace abajo.
 FROM node:20-bookworm-slim AS back
 WORKDIR /app
+
+# OpenSSL y ca-certificates: bookworm-slim es minimal y NO los incluye. Los
+# motores de Prisma (migrate/schema engine) los necesitan; sin esto fallan con
+# "Prisma failed to detect the libssl/openssl version" y "Schema engine error".
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Deps de producción + CLI de Prisma (necesaria para `migrate deploy` en el
 # arranque, ya que `prisma` es una devDependency).
