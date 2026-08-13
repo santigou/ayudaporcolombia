@@ -12,10 +12,11 @@ RUN npm ci
 
 # Resto del código fuente y build de cliente + servidor (npm workspaces).
 COPY . .
-RUN npm run build
-
-# Genera el cliente Prisma (motor de consulta) dentro de node_modules.
+# IMPORTANTE: generar el cliente Prisma ANTES del build. Sin esto, los tipos de
+# las consultas son `any` y `nest build` falla con TS7006 (implicit any) en
+# producción (donde el build arranca limpio y no hay cliente cacheado).
 RUN npx prisma generate --schema=server-nestjs/prisma/schema.prisma
+RUN npm run build
 
 # =========================== Runtime stage ===========================
 FROM node:20-alpine AS runtime
