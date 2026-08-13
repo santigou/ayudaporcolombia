@@ -6,7 +6,18 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting database seed...');
 
+  // Limpieza completa y ordenada (respetando FKs) para que el seed sea idempotente.
+  await prisma.attachment.deleteMany();
+  await prisma.pointUpdate.deleteMany();
+  await prisma.verification.deleteMany();
+  await prisma.validation.deleteMany();
+  await prisma.contact.deleteMany();
+  await prisma.pointSupply.deleteMany();
+  await prisma.pointLocation.deleteMany();
   await prisma.point.deleteMany();
+  await prisma.location.deleteMany();
+  await prisma.supply.deleteMany();
+  await prisma.helpType.deleteMany();
   await prisma.moderatorRequest.deleteMany();
   await prisma.user.deleteMany();
   console.log('🧹 Cleaned existing data');

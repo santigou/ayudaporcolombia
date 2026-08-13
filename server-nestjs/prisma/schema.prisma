@@ -58,7 +58,7 @@ enum ValidationStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
   passwordHash String
   role         Role     @default(user)
@@ -74,10 +74,10 @@ model User {
 }
 
 model ModeratorRequest {
-  id           String                 @id @default(cuid())
-  userId       String                 @unique
+  id           String                 @id @default(uuid()) @db.Uuid
+  userId       String                 @unique @db.Uuid
   status       VerificationStatus     @default(pending)
-  reviewedById String?
+  reviewedById String?                @db.Uuid
   reviewedAt   DateTime?
   createdAt    DateTime               @default(now())
 
@@ -88,16 +88,16 @@ model ModeratorRequest {
 }
 
 model Point {
-  id                 String             @id @default(cuid())
+  id                 String             @id @default(uuid()) @db.Uuid
   code               String             @unique
   type               PointType
   title              String
   description        String
-  helpTypeId         String?
+  helpTypeId         String?            @db.Uuid
   status             PointStatus        @default(pending)
   verificationStatus VerificationStatus @default(pending)
 
-  createdById String?
+  createdById String? @db.Uuid
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   expiresAt  DateTime?
@@ -121,7 +121,7 @@ model Point {
 }
 
 model HelpType {
-  id          String  @id @default(cuid())
+  id          String  @id @default(uuid()) @db.Uuid
   name        String  @unique
   description String
 
@@ -129,7 +129,7 @@ model HelpType {
 }
 
 model Location {
-  id           String   @id @default(cuid())
+  id           String   @id @default(uuid()) @db.Uuid
   city         String
   neighborhood String
   address      String?
@@ -140,8 +140,8 @@ model Location {
 }
 
 model PointLocation {
-  pointId      String
-  locationId   String
+  pointId      String           @db.Uuid
+  locationId   String           @db.Uuid
   locationType PointLocationType
 
   point    Point    @relation(fields: [pointId], references: [id], onDelete: Cascade)
@@ -153,15 +153,15 @@ model PointLocation {
 }
 
 model Supply {
-  id   String @id @default(cuid())
+  id   String @id @default(uuid()) @db.Uuid
   name String @unique
 
   points PointSupply[]
 }
 
 model PointSupply {
-  pointId          String
-  supplyId         String
+  pointId          String  @db.Uuid
+  supplyId         String  @db.Uuid
   targetQuantity   Decimal?
   receivedQuantity Decimal?
   unit             String?
@@ -173,8 +173,8 @@ model PointSupply {
 }
 
 model Contact {
-  id        String      @id @default(cuid())
-  pointId   String
+  id        String      @id @default(uuid()) @db.Uuid
+  pointId   String      @db.Uuid
   type      ContactType
   value     String
   isPublic  Boolean     @default(true)
@@ -185,8 +185,8 @@ model Contact {
 }
 
 model Validation {
-  pointId   String
-  userId    String
+  pointId   String           @db.Uuid
+  userId    String           @db.Uuid
   status    ValidationStatus @default(confirmed)
   createdAt DateTime         @default(now())
 
@@ -198,9 +198,9 @@ model Validation {
 }
 
 model Verification {
-  id          String             @id @default(cuid())
-  pointId     String
-  moderatorId String
+  id          String             @id @default(uuid()) @db.Uuid
+  pointId     String             @db.Uuid
+  moderatorId String             @db.Uuid
   status      VerificationStatus
   note        String?
   createdAt   DateTime           @default(now())
@@ -213,10 +213,10 @@ model Verification {
 }
 
 model PointUpdate {
-  id        String   @id @default(cuid())
-  pointId   String
-  createdById String
-  message   String
+  id          String   @id @default(uuid()) @db.Uuid
+  pointId     String   @db.Uuid
+  createdById String   @db.Uuid
+  message     String
   createdAt DateTime @default(now())
 
   point     Point @relation(fields: [pointId], references: [id], onDelete: Cascade)
@@ -226,8 +226,8 @@ model PointUpdate {
 }
 
 model Attachment {
-  id        String         @id @default(cuid())
-  pointId   String
+  id        String         @id @default(uuid()) @db.Uuid
+  pointId   String         @db.Uuid
   url       String
   type      AttachmentType
   createdAt DateTime       @default(now())

@@ -30,7 +30,7 @@ enum ValidationStatus   { confirmed, rejected }            // validación comuni
 ### `User`
 | campo | tipo | notas |
 |---|---|---|
-| `id` | String PK | cuid |
+| `id` | String PK | uuid (v4, nativo Postgres) |
 | `email` | String unique | |
 | `passwordHash` | String | bcrypt |
 | `role` | Role | default `user` |
@@ -44,7 +44,7 @@ Relaciones: `points` (creados), `validations`, `verifications` (como moderador),
 ### `Point`
 | campo | tipo | notas |
 |---|---|---|
-| `id` | String PK | cuid |
+| `id` | String PK | uuid (v4, nativo Postgres) |
 | `type` | PointType | `need_help` o `offer_help` |
 | `title`, `description` | String | |
 | `helpTypeId` | String? | FK → `HelpType` (catálogo). Reemplaza al antiguo enum `PointCategory`. |
