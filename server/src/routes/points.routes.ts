@@ -126,6 +126,7 @@ pointsRouter.get("/:id", async (req, res) => {
       supplies: { include: { supply: true } },
       attachments: true,
       updates: { orderBy: { createdAt: "desc" } },
+      createdBy: { select: { email: true } },
     },
   });
   if (!point || !isPubliclyVisible(point)) {
@@ -154,6 +155,7 @@ pointsRouter.get("/:id", async (req, res) => {
     })),
     photos: point.attachments.filter((a) => a.type === "image").map((a) => a.url),
     updates: point.updates.map((u) => ({ id: u.id, message: u.message, createdAt: u.createdAt })),
+    createdByEmail: point.createdBy?.email ?? null,
   });
 });
 

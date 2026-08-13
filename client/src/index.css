@@ -9,3 +9,14 @@ html, body, #root {
 .maplibregl-popup-content {
   border-radius: 0.5rem;
 }
+
+/* Mini-mapa del detalle: atribución solo como icono ⓘ (sin texto, deshabilitada).
+   El texto de créditos se oculta siempre y el botón queda atenuado y no reactivo. */
+.mini-map .maplibregl-ctrl-attrib-inner {
+  display: none !important;
+}
+.mini-map .maplibregl-ctrl-attrib-button {
+  cursor: default !important;
+  opacity: 0.35 !important;
+  pointer-events: none !important;
+}

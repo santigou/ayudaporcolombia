@@ -5,6 +5,8 @@ import { MapView } from "../components/MapView";
 import { FiltersBar } from "../components/FiltersBar";
 import { PointList } from "../components/PointList";
 import { PointDetail } from "../components/PointDetail";
+import { HomeBottomSheet } from "../components/HomeBottomSheet";
+import { useIsDesktop } from "../hooks/useIsDesktop";
 import type { BBox, HelpTypeOption, Point, PointsResponse, PointType } from "../types";
 
 export function Home() {
@@ -16,6 +18,8 @@ export function Home() {
   const [helpType, setHelpType] = useState<HelpTypeOption | "todas">("todas");
   const [selected, setSelected] = useState<Point | null>(null);
   const [bbox, setBbox] = useState<BBox | null>(null);
+  // Desktop: panel lateral derecho con detalle. Móvil: overlay (bottom-sheet).
+  const isDesktop = useIsDesktop();
 
   // Reutiliza la última petición para descartar respuestas de bbox viejos (race).
   const reqIdRef = useRef(0);
@@ -66,7 +70,10 @@ export function Home() {
   const selectedId = selected?.id;
   const sidePanel = useMemo(() => {
     if (selected) {
-      return <PointDetail point={selected} onClose={() => setSelected(null)} />;
+      // En móvil el detalle se monta como overlay (HomeBottomSheet) fuera del
+      // aside; aquí devolvemos null para no duplicar contenido en el panel.
+      if (!isDesktop) return null;
+      return <PointDetail point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} />;
     }
     return (
       <>
@@ -96,7 +103,7 @@ export function Home() {
         )}
       </>
     );
-  }, [selected, type, helpType, loading, error, truncated, filteredPoints, handleSelectPoint]);
+  }, [selected, isDesktop, type, helpType, loading, error, truncated, filteredPoints, handleSelectPoint]);
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">
@@ -117,6 +124,11 @@ export function Home() {
       <aside className="flex-1 md:flex-none md:w-96 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col overflow-hidden bg-white">
         {sidePanel}
       </aside>
+
+      {/* Overlay móvil: hoja tipo Airbnb sobre el mapa con galería + mini-mapa. */}
+      {!isDesktop && selected && (
+        <HomeBottomSheet point={selected} nearbyPoints={filteredPoints} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }

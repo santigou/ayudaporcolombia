@@ -96,7 +96,22 @@ export function ModeratorDashboard() {
                     {point.contacts.map((c) => `${CONTACT_LABELS[c.type]}: ${c.value}`).join(" · ")}
                   </p>
                 )}
-                <p className="text-xs text-gray-500">Creado por: {point.createdBy?.email ?? "anónimo"}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  {point.createdBy ? (
+                    <>
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold uppercase text-gray-600">
+                        {point.createdBy.email.charAt(0)}
+                      </span>
+                      <span className="text-sm font-medium text-gray-800">
+                        {point.createdBy.email}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                      Anónimo
+                    </span>
+                  )}
+                </div>
                 <div className="mt-2 flex gap-2">
                   <button onClick={() => reviewPoint(point.id, "approve")} className="rounded-md bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium">Aprobar</button>
                   <button onClick={() => reviewPoint(point.id, "reject")} className="rounded-md bg-red-600 text-white px-3 py-1.5 text-sm font-medium">Rechazar</button>
@@ -110,8 +125,21 @@ export function ModeratorDashboard() {
           {pendingRequests.length === 0 && <p className="text-sm text-gray-500">No hay solicitudes pendientes.</p>}
           {pendingRequests.map((req) => (
             <li key={req.id} className="rounded-md border border-gray-200 p-3">
-              <p className="text-sm text-gray-600">{req.user.email}</p>
-              <div className="mt-2 flex gap-2">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-base font-bold uppercase text-brand">
+                  {req.user.email.charAt(0)}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Solicitante
+                  </p>
+                  <p className="truncate font-semibold text-gray-900">{req.user.email}</p>
+                  <p className="text-xs text-gray-400">
+                    Solicita el {new Date(req.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
                 <button onClick={() => reviewRequest(req.id, "approve")} className="rounded-md bg-emerald-600 text-white px-3 py-1.5 text-sm font-medium">Aprobar</button>
                 <button onClick={() => reviewRequest(req.id, "reject")} className="rounded-md bg-red-600 text-white px-3 py-1.5 text-sm font-medium">Rechazar</button>
               </div>
