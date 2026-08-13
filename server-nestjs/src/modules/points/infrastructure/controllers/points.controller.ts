@@ -1,11 +1,10 @@
 ﻿import {
-  Controller, Get, Post, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFiles, BadRequestException,
+  Controller, Get, Post, Body, Param, Query, Req, UseGuards, BadRequestException,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import { PointService } from '../../application/point.service';
 import { ZodValidationPipe } from '../../../../shared/application/validators/validation.pipe';
-import { photosStorage, photosFileFilter } from '../../../../shared/infrastructure/multer/upload.config';
 import { AuthGuard } from '../../../../shared/infrastructure/guards/auth.guard';
 import { RequireAuth } from '../../../../shared/application/decorators/roles.decorator';
 import { AuthenticatedRequest } from '../../../../shared/infrastructure/middleware/auth.middleware';
@@ -27,9 +26,28 @@ function parseJsonArray<T>(raw: unknown): T[] {
   return Array.isArray(raw) ? raw : [];
 }
 
+const MAX_PHOTOS = 5;
+
 @Controller('api/points')
 export class PointsController {
-  constructor(private readonly pointService: PointService) {}
+  private readonly allowedPhotoPrefixes: string[];
+
+  constructor(
+    private readonly pointService: PointService,
+    private readonly config: ConfigService,
+  ) {
+    // Prefijos de URL permitidos para las fotos: anti-abuso (no se pueden colar
+    // URLs arbitrarias). En prod = endpoint público S3 + bucket; en dev = /uploads/.
+    const driver = (this.config.get<string>('STORAGE_DRIVER') || 'local').toLowerCase();
+    if (driver === 'seaweedfs') {
+      const pub = (this.config.get<string>('S3_PUBLIC_URL') || '').replace(/\/+$/, '');
+      const bucket = this.config.get<string>('S3_BUCKET') || '';
+      // Path-style S3: <publicUrl>/<bucket>/
+      this.allowedPhotoPrefixes = pub && bucket ? [`${pub}/${bucket}/`] : [];
+    } else {
+      this.allowedPhotoPrefixes = ['/uploads/'];
+    }
+  }
 
   @Get()
   async list(@Query() q: Record<string, string>) {
@@ -108,19 +126,12 @@ export class PointsController {
   }
 
   @Post()
-  @UseInterceptors(FilesInterceptor('photos', 5, {
-    storage: photosStorage,
-    fileFilter: photosFileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 },
-  }))
   async create(
     @Body() body: Record<string, any>,
-    @UploadedFiles() files: Express.Multer.File[],
     @Req() req: AuthenticatedRequest,
   ) {
-    // multipart/form-data: los campos de texto llegan como strings. Coercemos y
-    // validamos manualmente (no podemos usar ZodValidationPipe sobre @Body
-    // porque multer aún no ha parseado el body cuando el pipe global corre).
+    // JSON: las fotos ya se subieron directamente al almacenamiento (SeaweedFS
+    // en prod / disco en dev) y aquí llegan como un array de URLs públicas.
     const type = body.type as 'need_help' | 'offer_help';
     if (type !== 'need_help' && type !== 'offer_help') {
       throw new BadRequestException('type debe ser need_help u offer_help');
@@ -133,8 +144,7 @@ export class PointsController {
     const contacts = parseJsonArray(body.contacts) as any[];
     const locations = parseJsonArray(body.locations) as any[];
     const supplies = parseJsonArray(body.supplies) as any[];
-    // multer ya guardó las fotos a disco con nombres UUID; mapeamos a sus URLs.
-    const photoUrls = (files ?? []).map((f) => `/uploads/${f.filename}`);
+    const photoUrls = this.validatePhotoUrls(body.photoUrls);
 
     return this.pointService.create(
       {
@@ -151,5 +161,18 @@ export class PointsController {
       },
       req.user?.userId,
     );
+  }
+
+  // Valida que las URLs de fotos pertenezcan al almacenamiento configurado y que
+  // no excedan el máximo. Anti-abuso: evita que se cuelen URLs arbitrarias.
+  private validatePhotoUrls(raw: unknown): string[] {
+    if (raw == null) return [];
+    const arr = Array.isArray(raw) ? raw : [];
+    const urls = arr.map((u) => String(u)).filter(Boolean).slice(0, MAX_PHOTOS);
+    for (const url of urls) {
+      const allowed = this.allowedPhotoPrefixes.some((p) => url.startsWith(p));
+      if (!allowed) throw new BadRequestException('Las URLs de fotos no son válidas');
+    }
+    return urls;
   }
 }

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapView } from "../MapView";
 import { reverseGeocode, type AddressResult } from "../AddressSearch";
-import { api, ApiError } from "../../api/client";
+import { api, ApiError, uploadFile } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import {
   HELP_TYPES,
@@ -201,16 +201,27 @@ export function CreateWizard() {
 
     setSubmitting(true);
     try {
-      const form = new FormData();
-      form.set("type", type);
-      form.set("title", title.trim());
-      form.set("description", description.trim());
-      form.set("locations", JSON.stringify(validLocations));
-      form.set("helpTypeName", helpType); // obligatorio para ambos tipos
-      form.set("contacts", JSON.stringify(validContacts));
-      if (validSupplies.length > 0) form.set("supplies", JSON.stringify(validSupplies));
-      for (const f of photos.slice(0, MAX_PHOTOS)) form.append("photos", f);
-      const created = await api.post<{ code: string }>("/points", form);
+      // 1) Subir fotos directamente al almacenamiento (presign + PUT).
+      //    Los bytes no pasan por el backend: van al CDN de SeaweedFS (prod)
+      //    o a disco (dev).
+      const photoUrls = await Promise.all(
+        photos.slice(0, MAX_PHOTOS).map(async (f) => {
+          const { uploadUrl, publicUrl, headers } = await api.presignUpload(f.name, f.type);
+          await uploadFile(uploadUrl, f, headers);
+          return publicUrl;
+        }),
+      );
+      // 2) Crear el punto con JSON (sin multipart).
+      const created = await api.post<{ code: string }>("/points", {
+        type,
+        title: title.trim(),
+        description: description.trim(),
+        locations: validLocations,
+        helpTypeName: helpType, // obligatorio para ambos tipos
+        contacts: validContacts,
+        ...(validSupplies.length > 0 ? { supplies: validSupplies } : {}),
+        photoUrls,
+      });
       setCreated({ type, code: created.code });
       clearDraft(); // publicado con éxito: ya no hace falta el borrador
     } catch (err) {

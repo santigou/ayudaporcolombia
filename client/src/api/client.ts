@@ -30,6 +30,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface PresignResult {
+  uploadUrl: string;
+  publicUrl: string;
+  method: "PUT";
+  headers?: Record<string, string>;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -37,4 +44,29 @@ export const api = {
       method: "POST",
       body: body instanceof FormData ? body : JSON.stringify(body ?? {}),
     }),
+  // Pide una URL pre-firmada para subir una foto directo al almacenamiento.
+  presignUpload: (filename: string, mime: string) =>
+    request<PresignResult>("/uploads/presign", {
+      method: "POST",
+      body: JSON.stringify({ filename, mime }),
+    }),
 };
+
+// Sube un fichero directamente al almacenamiento (SeaweedFS vía presigned PUT o
+// disco local). No pasa por /api: va a la uploadUrl devuelta por api.presignUpload.
+// `headers` son las cabeceras que exige la URL pre-firmada (p. ej. Content-Type).
+export async function uploadFile(
+  uploadUrl: string,
+  file: File,
+  headers?: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: { ...(headers ?? {}) },
+    credentials: "omit",
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo subir la foto (HTTP ${res.status})`);
+  }
+}

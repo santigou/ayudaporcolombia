@@ -1,28 +1,26 @@
-import { diskStorage } from 'multer';
-import { existsSync, mkdirSync } from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
+// Helpers de validación de imágenes reutilizados por los adaptadores de Storage.
+// (Multer/diskStorage se eliminó: las fotos ahora se suben directo al
+// almacenamiento vía URL pre-firmada, sin pasar por el backend.)
 
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+// MIME types de imagen permitidos para subida de fotos.
+export const IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-// Configuración de multer a disco local, idéntica al backend Express original:
-// destino process.cwd()/uploads, nombre = UUID + extensión, máx 5 imágenes.
-export const photosStorage = diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${crypto.randomUUID()}${ext}`);
-  },
-});
+export function isImageMime(mimetype: string): boolean {
+  return IMAGE_MIME.includes(mimetype);
+}
 
-const IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-
-export const photosFileFilter = (
-  _req: any,
-  file: Express.Multer.File,
-  cb: (error: Error | null, acceptFile: boolean) => void,
-) => {
-  if (IMAGE_MIME.includes(file.mimetype)) cb(null, true);
-  else cb(new Error('Solo se permiten imágenes'), false);
-};
+// Extensión de fichero a partir de un MIME type de imagen.
+export function extFromMime(mimetype: string): string {
+  switch (mimetype) {
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'image/gif':
+      return '.gif';
+    default:
+      return '';
+  }
+}

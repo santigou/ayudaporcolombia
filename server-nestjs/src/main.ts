@@ -40,8 +40,12 @@ async function bootstrap() {
     }),
   );
 
-  // Ficheros estáticos: fotos subidas a /uploads.
-  app.useStaticAssets(path.join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  // Ficheros estáticos: fotos subidas a /uploads. Solo en modo local (dev):
+  // en producción las fotos se sirven desde el CDN de SeaweedFS.
+  const storageDriver = configService.get<string>('STORAGE_DRIVER') || 'local';
+  if (storageDriver.toLowerCase() !== 'seaweedfs') {
+    app.useStaticAssets(path.join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  }
 
   // En producción, sirve el SPA de React compilado (client/dist) y deja el
   // fallback a index.html para que React Router maneje las rutas (p. ej.
