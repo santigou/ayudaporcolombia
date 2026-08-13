@@ -7,7 +7,10 @@
 # En docker-compose se selecciona con `target: back` / `target: front`.
 
 # ============================ Build base ============================
-FROM node:20-alpine AS build-base
+# Debian slim (NO Alpine): Prisma no soporta bien musl/Alpine y sus binarios
+# fallan ("Could not parse schema engine response"). En Debian funciona sin
+# instalaciones extra.
+FROM node:20-bookworm-slim AS build-base
 WORKDIR /app
 
 # Manifests primero para aprovechar el cache de dependencias de Docker.
@@ -31,13 +34,9 @@ FROM build-base AS front-build
 RUN npm run build -w client
 
 # ============================ Back runtime ============================
-FROM node:20-alpine AS back
+# Debian slim: Prisma funciona sin instalaciones extra (trae libssl3 + glibc).
+FROM node:20-bookworm-slim AS back
 WORKDIR /app
-
-# OpenSSL 1.1.x para los motores de Prisma (migrate/query engine). Alpine trae
-# OpenSSL 3.x y Prisma necesita 1.1.x; sin esto, `prisma migrate deploy` falla
-# con "Prisma failed to detect the libssl/openssl version" al arrancar.
-RUN apk add --no-cache openssl1.1-compat
 
 # Deps de producción + CLI de Prisma (necesaria para `migrate deploy` en el
 # arranque, ya que `prisma` es una devDependency).
@@ -51,7 +50,7 @@ RUN npm ci --omit=dev \
 COPY --from=back-build /app/server-nestjs/dist ./server-nestjs/dist
 COPY server-nestjs/prisma ./server-nestjs/prisma
 
-# Regenera el cliente Prisma con el motor de la plataforma runtime (linux/musl).
+# Regenera el cliente Prisma con el motor de la plataforma runtime (linux/glibc Debian).
 RUN npx prisma generate --schema=server-nestjs/prisma/schema.prisma
 
 # Entrypoint: migraciones + seed-prod + start. Normaliza CRLF→LF (se edita en Win).
