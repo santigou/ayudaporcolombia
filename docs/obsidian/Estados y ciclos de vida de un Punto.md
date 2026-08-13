@@ -51,8 +51,41 @@ stateDiagram-v2
 
 ## Estados reservados / sin uso
 
-- `expired` y `cancelled`: declarados en el enum, sin path para llegar a ellos.
-- `resolved`: declarado, sin endpoint (igual que antes).
+- `expired`: declarado en el enum, sin path manual (se asigna por `expiresAt` automáticamente). 
+- `rejected`: estado terminal del flujo de **verificación** (moderador rechaza un `offer_help`). No entra en la máquina de estados del ciclo de vida.
+
+## Máquina de estados (ciclo de vida gestionable)
+
+El cambio de `status` lo gestiona el **creador** del punto o un **moderador** directamente; otros usuarios lo **solicitan** (ver más abajo). La verificación (`approve`/`reject`/`verify`) sigue siendo exclusiva del moderador y **no** forma parte de esta máquina.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: offer_help creado
+    [*] --> active: need_help creado
+    pending --> cancelled: retirar de revisión
+    active --> resolved: marcar resuelto
+    active --> cancelled: cancelar
+    resolved --> active: reactivar
+    cancelled --> active: reactivar
+```
+
+| Transición | Quién la puede aplicar | Efecto en visibilidad |
+|---|---|---|
+| `active → resolved` | creador o moderador | Oculto del mapa **por defecto** (toggle "Mostrar resueltos"); badge **"Resuelto"** |
+| `active → cancelled` | creador o moderador | Se **oculta** del mapa (sin toggle) |
+| `pending → cancelled` | creador o moderador | Retira el `offer_help` de la cola de revisión |
+| `resolved → active` | creador o moderador | Reactiva el punto |
+| `cancelled → active` | creador o moderador | Reactiva el punto |
+
+> [!info] Resueltos ocultos por defecto en el mapa
+> Para no saturar el mapa con info innecesaria, los puntos `resolved` **no se muestran** salvo que el usuario active **"Mostrar resueltos"** en el panel de filtros. El backend los sigue devolviendo; el filtrado es en el cliente (`Home.filteredPoints`). Siguen accesibles por su link compartible (`/p/:code`) y en el tab "Estado".
+
+> [!info] Puntos anónimos
+> Un punto sin creador (`createdById=null`, p. ej. `need_help` anónimo) **solo** puede cambiar de estado un moderador.
+
+## Solicitudes de cambio de estado
+
+Un usuario que **no** es el creador ni moderador puede solicitar un cambio de estado (`resolved`/`cancelled`). La solicitud incluye un **motivo** opcional y queda **pendiente** hasta que un moderador la aprueba (entonces se aplica) o rechaza. Solo **una pendiente por (usuario, punto)**. El moderador ve estas solicitudes en una tercera cola del panel `/moderador`.
 
 ## Relacionado
 

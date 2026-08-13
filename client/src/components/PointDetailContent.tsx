@@ -2,16 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CONTACT_LABELS,
   LOCATION_TYPE_LABELS,
+  STATUS_LABELS,
   locationLabel,
   type ContactInfo,
   type Point,
   type PointLocationEntry,
+  type PointStatus,
+  type PointStatusHistoryItem,
   type PointUpdateItem,
 } from "../types";
 import { PointNovedades } from "./PointNovedades";
 import { ImageGallery } from "./ImageGallery";
 import { PointMiniMap } from "./PointMiniMap";
 import { VerifyBar } from "./VerifyBar";
+import { StatusControls } from "./StatusControls";
 
 interface PointDetailContentProps {
   point: Point;
@@ -29,6 +33,9 @@ interface PointDetailContentProps {
   hideTitle?: boolean;
   // Email del creador del punto (null = anónimo, p. ej. need_help sin sesión).
   createdByEmail?: string | null;
+  // Id del creador (para saber si el usuario actual es el dueño y puede cambiar
+  // el estado directamente). null = anónimo → solo el moderador puede.
+  createdById?: string | null;
   // Verificación comunitaria.
   validationCount?: number;
   userValidated?: boolean;
@@ -42,9 +49,16 @@ interface PointDetailContentProps {
   // Verificación oficial de moderador (need_help): estado + callback.
   moderatorVerifying?: boolean;
   onModeratorVerify?: () => void;
+  // Cambio de estado del ciclo de vida (resolved/cancelled/reactivar).
+  onStatusChange?: (status: "resolved" | "cancelled" | "active") => Promise<void>;
+  statusChanging?: boolean;
+  onRequestStatusChange?: (status: "resolved" | "cancelled" | "active", reason?: string) => Promise<void>;
+  statusRequesting?: boolean;
+  // Historial de cambios de estado (tab "Estado").
+  statusHistory?: PointStatusHistoryItem[];
 }
 
-type Tab = "info" | "novedades";
+type Tab = "info" | "novedades" | "estado";
 
 // URL de Google Maps para "Cómo llegar". Si el punto define un origen (p. ej.
 // ruta de transporte), lo añade para que Maps trace la ruta completa; si no,
@@ -79,6 +93,7 @@ export function PointDetailContent({
   onSubmitNovedad,
   hideTitle = false,
   createdByEmail = null,
+  createdById = null,
   validationCount = 0,
   userValidated = false,
   validating = false,
@@ -87,6 +102,11 @@ export function PointDetailContent({
   pendingNotice,
   moderatorVerifying = false,
   onModeratorVerify,
+  onStatusChange,
+  statusChanging = false,
+  onRequestStatusChange,
+  statusRequesting = false,
+  statusHistory = [],
 }: PointDetailContentProps) {
   const [tab, setTab] = useState<Tab>("info");
   const [activeLocIndex, setActiveLocIndex] = useState(0); // ubicación activa del mini-mapa
@@ -159,6 +179,9 @@ export function PointDetailContent({
               {updates.length}
             </span>
           )}
+        </TabButton>
+        <TabButton active={tab === "estado"} onClick={() => setTab("estado")}>
+          Estado
         </TabButton>
       </div>
 
@@ -255,6 +278,12 @@ export function PointDetailContent({
                   {pendingNotice && (
                     <p className="mt-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">{pendingNotice}</p>
                   )}
+                  {point.status === "resolved" && (
+                    <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                      <p className="font-semibold">✓ Punto resuelto</p>
+                      <p>Este caso fue marcado como resuelto por el creador o un moderador.</p>
+                    </div>
+                  )}
                   {address && <p className="mt-1 text-xs text-gray-400">{address}</p>}
                 </>
               )}
@@ -292,7 +321,7 @@ export function PointDetailContent({
               )}
             </div>
           </div>
-        ) : (
+        ) : tab === "novedades" ? (
           <div className="h-full px-4 py-3">
             <PointNovedades
               updates={updates}
@@ -304,6 +333,17 @@ export function PointDetailContent({
               onSubmitNovedad={onSubmitNovedad}
             />
           </div>
+        ) : (
+          <EstadoTab
+            status={point.status}
+            createdById={createdById}
+            history={statusHistory}
+            onChangeStatus={onStatusChange}
+            changing={statusChanging}
+            onRequestStatusChange={onRequestStatusChange}
+            requesting={statusRequesting}
+            pointId={point.id}
+          />
         )}
       </div>
     </div>
@@ -332,5 +372,101 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+// Color del badge de estado actual (consistente con el resto de la UI).
+function statusTone(status: PointStatus): string {
+  if (status === "active" || status === "resolved") {
+    return status === "resolved"
+      ? "bg-blue-100 text-blue-700"
+      : "bg-emerald-100 text-emerald-700";
+  }
+  if (status === "pending") return "bg-amber-100 text-amber-700";
+  return "bg-gray-200 text-gray-600"; // cancelled / expired / rejected
+}
+
+// Tab "Estado": muestra el estado ACTUAL del punto arriba, los controles para
+// cambiarlo (creador/moderador directo; otros, solicitud con motivo) y el
+// historial de cambios aplicados.
+function EstadoTab({
+  status,
+  createdById,
+  history,
+  onChangeStatus,
+  changing,
+  onRequestStatusChange,
+  requesting,
+  pointId,
+}: {
+  status: PointStatus;
+  createdById?: string | null;
+  history: PointStatusHistoryItem[];
+  onChangeStatus?: (status: "resolved" | "cancelled" | "active") => Promise<void>;
+  changing?: boolean;
+  onRequestStatusChange?: (status: "resolved" | "cancelled" | "active", reason?: string) => Promise<void>;
+  requesting?: boolean;
+  pointId: string;
+}) {
+  return (
+    <div className="h-full overflow-y-auto px-4 py-3">
+      {/* Estado actual */}
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          Estado actual
+        </span>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusTone(status)}`}
+        >
+          {STATUS_LABELS[status]}
+        </span>
+      </div>
+
+      {/* Petición / cambio de estado */}
+      <StatusControls
+        pointId={pointId}
+        status={status}
+        createdById={createdById}
+        className="mt-3"
+        onChangeStatus={onChangeStatus}
+        changing={changing}
+        onRequestStatusChange={onRequestStatusChange}
+        requesting={requesting}
+      />
+
+      {/* Historial de cambios */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-gray-900">Historial de cambios</h3>
+        {history.length === 0 ? (
+          <p className="mt-1 text-xs text-gray-500">
+            Aún no se han registrado cambios de estado en este punto.
+          </p>
+        ) : (
+          <ol className="mt-2 space-y-2">
+            {history.map((h) => (
+              <li key={h.id} className="rounded-md border border-gray-200 bg-white p-2.5">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
+                    {STATUS_LABELS[h.fromStatus]}
+                  </span>
+                  <span className="text-gray-400">→</span>
+                  <span className="rounded-full bg-brand/10 px-2 py-0.5 font-medium text-brand-dark">
+                    {STATUS_LABELS[h.toStatus]}
+                  </span>
+                </div>
+                {h.reason && (
+                  <p className="mt-1.5 text-xs text-gray-600">
+                    <span className="font-medium text-gray-500">Motivo:</span> {h.reason}
+                  </p>
+                )}
+                <p className="mt-1 text-[11px] text-gray-400">
+                  {h.actorEmail ?? "Anónimo"} · {new Date(h.createdAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
   );
 }

@@ -6,7 +6,7 @@ tipo: flujo
 
 # Flujo de moderación
 
-Dos colas de trabajo para el moderador: **puntos** y **solicitudes**. La UI está en la página `/moderador` (componente `ModeratorDashboard`).
+Dos colas de trabajo para el moderador: **puntos**, **solicitudes** y **cambios de estado**. La UI está en la página `/moderador` (componente `ModeratorDashboard`).
 
 ## Cola 1: Puntos de oferta pendientes
 
@@ -54,6 +54,33 @@ sequenceDiagram
 
 - La aprobación es **atómica** (`prisma.$transaction`) — actualiza la solicitud y el rol del usuario a la vez.
 - Una vez aprobado, ese usuario ve el link "Moderación" en su navbar.
+
+## Cola 3: Solicitudes de cambio de estado
+
+Usuarios que no son creador ni moderador proponen cambiar el `status` de un punto (`resolved`/`cancelled`) con un motivo opcional. El moderador aprueba (aplica el cambio) o rechaza.
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant M as Moderador
+    participant A as API
+    participant DB
+    U->>A: POST /api/points/:id/status-requests {status, reason?}
+    A->>DB: PointStatusRequest(pending) — una pendiente por (usuario, punto)
+    M->>A: GET /api/moderator/status-requests
+    A-->>M: cola de pendientes (punto, solicitante, targetStatus, reason)
+    alt aprueba
+        M->>A: POST /api/moderator/status-requests/:id/approve
+        A->>A: re-valida transición contra el status ACTUAL del punto
+        A->>DB: tx { Point.status=targetStatus, request.status=approved }
+    else rechaza
+        M->>A: POST /api/moderator/status-requests/:id/reject
+        A->>DB: request.status=rejected
+    end
+```
+
+- Al **aprobar** se re-valida la transición contra el estado **actual** del punto (pudo cambiar mientras la solicitud estuvo pendiente); si ya no es válida, se rechaza con mensaje.
+- El cambio directo de estado (sin solicitud) lo hace el creador o el moderador con `POST /api/points/:id/status`. Ver [[Estados y ciclos de vida de un Punto]].
 
 ## Punto importante
 

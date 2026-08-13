@@ -122,3 +122,9 @@ Timeline de mensajes asociados a un punto. `{ id, pointId, createdById, message,
 
 ### `ModeratorRequest`
 Solicitud de un usuario para ser moderador. `userId` único (una solicitud por usuario). `status` es `VerificationStatus`. Campos: `id`, `userId`, `status`, `reviewedById?`, `reviewedAt?`, `createdAt`. Índice en `status`.
+
+### `PointStatusRequest`
+Solicitud de cambio de estado (ciclo de vida) de un Punto por un usuario que no es creador ni moderador. `{ id, pointId, userId, targetStatus: PointStatus, reason?, status: VerificationStatus, reviewedById?, reviewedAt?, createdAt }`. El usuario propone un estado objetivo + motivo; queda `pending` hasta que un moderador la aprueba (aplica el cambio) o rechaza. Restricción: **una pendiente por (usuario, punto)** (índice parcial `UNIQUE ... WHERE status='pending'`). Índices en `pointId`, `status`, `userId`. Ver [[Estados y ciclos de vida de un Punto]].
+
+### `PointStatusHistory`
+Log de cada cambio de estado (ciclo de vida) **aplicado** a un Punto (directo por creador/moderador, o por solicitud aprobada). `{ id, pointId, fromStatus, toStatus, reason?, actorId, requestId?, createdAt }`. Es la fuente del tab "Estado" del detalle. Índices `[pointId, createdAt]` y `[actorId]`.

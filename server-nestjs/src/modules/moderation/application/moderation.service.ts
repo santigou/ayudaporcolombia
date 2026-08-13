@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
+import { isTransitionAllowed } from '../../points/application/point.service';
 
 function primaryLocation(locs: any[]) {
   const chosen = locs.find((l) => l.locationType === 'location') ?? locs[0];
@@ -111,6 +112,85 @@ export class ModerationService {
       throw new NotFoundException('Solicitud no encontrada');
     }
     return this.prisma.moderatorRequest.update({
+      where: { id },
+      data: { status: 'rejected', reviewedById: moderatorId, reviewedAt: new Date() },
+    });
+  }
+
+  // --- Solicitudes de cambio de estado (ciclo de vida de un Punto) ---
+  // Un usuario que no es creador ni moderador propone un estado objetivo + motivo.
+  // El moderador aprueba (aplica el cambio) o rechaza. Al aprobar se re-valida la
+  // transición contra el estado ACTUAL del punto (pudo cambiar mientras la
+  // solicitud estuvo pendiente); si ya no aplica, se rechaza con mensaje.
+
+  async getPendingStatusRequests() {
+    const requests = await this.prisma.pointStatusRequest.findMany({
+      where: { status: 'pending' },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        point: { select: { id: true, code: true, title: true, type: true, status: true, verificationStatus: true } },
+        user: { select: { id: true, email: true } },
+      },
+    });
+    return requests.map((r) => ({
+      id: r.id,
+      targetStatus: r.targetStatus,
+      reason: r.reason,
+      createdAt: r.createdAt,
+      point: r.point,
+      user: r.user,
+    }));
+  }
+
+  async approveStatusRequest(id: string, moderatorId: string) {
+    const request = await this.prisma.pointStatusRequest.findUnique({
+      where: { id },
+      include: { point: { select: { id: true, status: true } } },
+    });
+    if (!request || request.status !== 'pending') {
+      throw new NotFoundException('Solicitud no encontrada');
+    }
+
+    // Re-valida la transición contra el estado actual del punto (pudo cambiar).
+    const currentStatus = request.point.status;
+    if (!isTransitionAllowed(currentStatus, request.targetStatus)) {
+      // Marca la solicitud como rechazada automáticamente con nota explicativa.
+      await this.prisma.pointStatusRequest.update({
+        where: { id },
+        data: { status: 'rejected', reviewedById: moderatorId, reviewedAt: new Date() },
+      });
+      throw new BadRequestException(`La transición de "${currentStatus}" a "${request.targetStatus}" ya no es válida`);
+    }
+
+    // En una transacción: aplica el cambio de estado + deja constancia en el
+    // historial (actor = el moderador que aprueba, requestId enlaza la solicitud)
+    // + marca la solicitud aprobada.
+    await this.prisma.$transaction([
+      this.prisma.point.update({ where: { id: request.point.id }, data: { status: request.targetStatus } }),
+      this.prisma.pointStatusHistory.create({
+        data: {
+          pointId: request.point.id,
+          fromStatus: currentStatus as any,
+          toStatus: request.targetStatus as any,
+          reason: request.reason ?? null,
+          actorId: moderatorId,
+          requestId: request.id,
+        },
+      }),
+      this.prisma.pointStatusRequest.update({
+        where: { id },
+        data: { status: 'approved', reviewedById: moderatorId, reviewedAt: new Date() },
+      }),
+    ]);
+    return { success: true };
+  }
+
+  async rejectStatusRequest(id: string, moderatorId: string, note?: string) {
+    const request = await this.prisma.pointStatusRequest.findUnique({ where: { id } });
+    if (!request || request.status !== 'pending') {
+      throw new NotFoundException('Solicitud no encontrada');
+    }
+    return this.prisma.pointStatusRequest.update({
       where: { id },
       data: { status: 'rejected', reviewedById: moderatorId, reviewedAt: new Date() },
     });

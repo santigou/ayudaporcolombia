@@ -23,6 +23,11 @@ export function PointByCode() {
     submitNovedad,
     validate,
     moderatorVerify,
+    statusChanging,
+    changeStatus,
+    statusRequesting,
+    requestStatusChange,
+    statusHistory,
   } = usePointByCode(code);
 
   if (loading) return <div className="p-6 text-center text-sm text-gray-500">Cargando…</div>;
@@ -57,12 +62,18 @@ export function PointByCode() {
           point={point}
           pendingNotice={pendingNotice}
           createdByEmail={point.createdByEmail}
+          createdById={point.createdById}
           validationCount={point.validationCount}
           userValidated={point.userValidated}
           validating={validating}
           onValidate={validate}
           moderatorVerifying={moderatorVerifying}
           onModeratorVerify={moderatorVerify}
+          onStatusChange={changeStatus}
+          statusChanging={statusChanging}
+          onRequestStatusChange={requestStatusChange}
+          statusRequesting={statusRequesting}
+          statusHistory={statusHistory}
           updates={updates}
           contacts={point.contacts}
           locations={point.locations}

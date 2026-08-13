@@ -24,6 +24,13 @@ export function PointDetail({ point, nearbyPoints, onClose, onPointUpdated }: Po
     onPointUpdated?.({ ...point, verificationStatus: "approved" });
   };
 
+  // Cambio de estado del ciclo de vida: tras éxito, propaga el nuevo status al
+  // Home para que el badge y el mapa reflejen el cambio al instante.
+  const handleStatusChange = async (status: "resolved" | "cancelled" | "active") => {
+    await detail.changeStatus(status);
+    onPointUpdated?.({ ...point, status });
+  };
+
   return (
     <div className="flex h-full flex-col">
       <button
@@ -37,12 +44,18 @@ export function PointDetail({ point, nearbyPoints, onClose, onPointUpdated }: Po
           point={point}
           nearbyPoints={nearbyPoints}
           createdByEmail={detail.createdByEmail}
+          createdById={detail.createdById}
           validationCount={detail.validationCount}
           userValidated={detail.userValidated}
           validating={detail.validating}
           onValidate={detail.validate}
           moderatorVerifying={detail.moderatorVerifying}
           onModeratorVerify={handleModeratorVerify}
+          onStatusChange={handleStatusChange}
+          statusChanging={detail.statusChanging}
+          onRequestStatusChange={detail.requestStatusChange}
+          statusRequesting={detail.statusRequesting}
+          statusHistory={detail.statusHistory}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

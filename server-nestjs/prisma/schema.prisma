@@ -71,6 +71,9 @@ model User {
   pointUpdates      PointUpdate[]
   moderatorRequests ModeratorRequest[] @relation("RequestByUser")
   reviewedRequests  ModeratorRequest[] @relation("RequestReviewedBy")
+  statusRequests         PointStatusRequest[] @relation("StatusRequestByUser")
+  reviewedStatusRequests PointStatusRequest[] @relation("StatusRequestReviewedBy")
+  statusHistoryActor     PointStatusHistory[] @relation("StatusHistoryActor")
 }
 
 model ModeratorRequest {
@@ -113,6 +116,8 @@ model Point {
   verifications Verification[]
   updates       PointUpdate[]
   attachments   Attachment[]
+  statusRequests   PointStatusRequest[]
+  statusHistory    PointStatusHistory[]
 
   @@index([type, status])
   @@index([verificationStatus])
@@ -237,4 +242,50 @@ model Attachment {
   point Point @relation(fields: [pointId], references: [id], onDelete: Cascade)
 
   @@index([pointId])
+}
+
+// Solicitud de cambio de estado de un Punto (ciclo de vida) hecha por un usuario
+// que NO es el creador ni moderador. El usuario propone un estado objetivo
+// (resolved/cancelled) + motivo; queda pendiente hasta que un moderador la aprueba
+// (aplica el cambio) o rechaza. Una PENDIENTE por (usuario, punto): el constraint
+// parcial UNIQUE se define en la migración (WHERE status = 'pending').
+model PointStatusRequest {
+  id            String             @id @default(uuid()) @db.Uuid
+  pointId       String             @db.Uuid
+  userId        String             @db.Uuid
+  targetStatus  PointStatus
+  reason        String?
+  status        VerificationStatus @default(pending)
+  reviewedById  String?            @db.Uuid
+  reviewedAt    DateTime?
+  createdAt     DateTime           @default(now())
+
+  point      Point  @relation(fields: [pointId], references: [id], onDelete: Cascade)
+  user       User   @relation("StatusRequestByUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("StatusRequestReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([pointId])
+  @@index([status])
+  @@index([userId])
+}
+
+// Historial de cambios de estado (ciclo de vida) de un Punto: una fila por cada
+// transición APLICADA (directa por creador/moderador, o por solicitud aprobada).
+// Registra de→a, quién la aplicó, el motivo y, si vino de una solicitud aprobada,
+// el enlace a esa solicitud. Es la fuente del tab "Estado" del detalle.
+model PointStatusHistory {
+  id            String     @id @default(uuid()) @db.Uuid
+  pointId       String     @db.Uuid
+  fromStatus    PointStatus
+  toStatus      PointStatus
+  reason        String?
+  actorId       String     @db.Uuid
+  requestId     String?    @db.Uuid
+  createdAt     DateTime   @default(now())
+
+  point Point @relation(fields: [pointId], references: [id], onDelete: Cascade)
+  actor User @relation("StatusHistoryActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([pointId, createdAt])
+  @@index([actorId])
 }

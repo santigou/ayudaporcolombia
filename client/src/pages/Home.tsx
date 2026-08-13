@@ -9,6 +9,30 @@ import { HomeBottomSheet } from "../components/HomeBottomSheet";
 import { useIsDesktop } from "../hooks/useIsDesktop";
 import type { BBox, HelpTypeOption, Point, PointsResponse, PointType } from "../types";
 
+// Normaliza texto para buscar sin distinguir mayúsculas ni acentos: así
+// "búsqueda" coincide con "busqueda" y "Medellín" con "medellin".
+function normalize(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Concatena en un solo string todos los campos por los que queremos buscar de un
+// punto. Se comparte una vez por punto y el filtro solo hace includes() por término.
+function searchableText(p: Point): string {
+  const loc = p.location;
+  return normalize(
+    [
+      p.title,
+      p.description,
+      p.helpType ?? "",
+      p.code,
+      loc?.city ?? "",
+      loc?.neighborhood ?? "",
+      loc?.address ?? "",
+      ...(p.supplies?.map((s) => s.name) ?? []),
+    ].join(" "),
+  );
+}
+
 export function Home() {
   const [points, setPoints] = useState<Point[]>([]);
   const [truncated, setTruncated] = useState(false);
@@ -16,6 +40,11 @@ export function Home() {
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<PointType | "todos">("todos");
   const [helpType, setHelpType] = useState<HelpTypeOption | "todas">("todas");
+  // Por defecto los resueltos no aparecen en el mapa (saturan sin aportar valor
+  // inmediato); se incluyen si el usuario activa el toggle en FiltersBar.
+  const [showResolved, setShowResolved] = useState(false);
+  // Buscador de texto libre (filtra en el cliente sobre los puntos de la zona).
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Point | null>(null);
   const [bbox, setBbox] = useState<BBox | null>(null);
   // Desktop: panel lateral derecho con detalle. Móvil: overlay (bottom-sheet).
@@ -58,11 +87,36 @@ export function Home() {
     };
   }, [bbox, type]);
 
-  // El filtro por tipo de ayuda es en el cliente (el catálogo es libre).
+  // El filtro por tipo de ayuda es en el cliente (el catálogo es libre). También
+  // ocultamos los resueltos salvo que el toggle esté activo y aplicamos el
+  // buscador de texto (todos los términos deben aparecer en la info del punto).
+  // Pre-normalizamos el texto buscable de cada punto una sola vez por carga.
+  const searchable = useMemo(() => points.map((p) => ({ p, text: searchableText(p) })), [points]);
+  const terms = useMemo(
+    () => query.trim().split(/[\s+]+/).map(normalize).filter(Boolean),
+    [query],
+  );
+
   const filteredPoints = useMemo(() => {
-    if (type !== "offer_help" || helpType === "todas") return points;
-    return points.filter((p) => p.helpType === helpType);
-  }, [points, type, helpType]);
+    let out = points;
+    if (!showResolved) out = out.filter((p) => p.status !== "resolved");
+    if (type === "offer_help" && helpType !== "todas") {
+      out = out.filter((p) => p.helpType === helpType);
+    }
+    if (terms.length > 0) {
+      const matchById = new Set(
+        searchable.filter(({ text }) => terms.every((t) => text.includes(t))).map(({ p }) => p.id),
+      );
+      out = out.filter((p) => matchById.has(p.id));
+    }
+    return out;
+  }, [points, type, helpType, showResolved, terms, searchable]);
+
+  // Cuántos resueltos hay ocultos actualmente (para la etiqueta del toggle).
+  const resolvedHiddenCount = useMemo(() => {
+    if (showResolved) return 0;
+    return points.filter((p) => p.status === "resolved").length;
+  }, [points, showResolved]);
 
   const handleSelectPoint = useCallback((point: Point) => setSelected(point), []);
   const handleBoundsChange = useCallback((next: BBox) => setBbox(next), []);
@@ -93,6 +147,11 @@ export function Home() {
             setHelpType("todas");
           }}
           onHelpTypeChange={setHelpType}
+          query={query}
+          onQueryChange={setQuery}
+          showResolved={showResolved}
+          onShowResolvedChange={setShowResolved}
+          resolvedCount={resolvedHiddenCount}
         />
         {loading ? (
           <p className="p-4 text-sm text-gray-500">Cargando puntos…</p>
@@ -106,12 +165,17 @@ export function Home() {
                 el mapa para ver todos.
               </p>
             )}
+            {terms.length > 0 && filteredPoints.length === 0 && (
+              <p className="px-4 py-3 text-sm text-gray-500">
+                No encontramos puntos para “{query}”. Prueba con otra palabra o aleja el mapa.
+              </p>
+            )}
             <PointList points={filteredPoints} selectedId={selectedId} onSelect={handleSelectPoint} />
           </>
         )}
       </>
     );
-  }, [selected, isDesktop, type, helpType, loading, error, truncated, filteredPoints, handleSelectPoint]);
+  }, [selected, isDesktop, type, helpType, showResolved, resolvedHiddenCount, query, terms, loading, error, truncated, filteredPoints, handleSelectPoint]);
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">

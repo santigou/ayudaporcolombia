@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { ContactInfo, Point, PointLocationEntry, PointUpdateItem } from "../types";
+import type { ContactInfo, Point, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem } from "../types";
 
 type PointByCodeData = Point & {
   validationCount: number;
@@ -24,6 +24,13 @@ interface UsePointByCodeResult {
   submitting: boolean;
   submitNovedad: () => Promise<void>;
   validate: () => Promise<void>;
+  // Cambio de estado del ciclo de vida + solicitud.
+  statusChanging: boolean;
+  changeStatus: (status: "resolved" | "cancelled" | "active") => Promise<void>;
+  statusRequesting: boolean;
+  requestStatusChange: (status: "resolved" | "cancelled" | "active", reason?: string) => Promise<void>;
+  // Historial de cambios de estado (tab "Estado").
+  statusHistory: PointStatusHistoryItem[];
 }
 
 // Carga un punto por su CÓDIGO compartible (/p/:code) en una sola petición que
@@ -40,6 +47,9 @@ export function usePointByCode(code: string): UsePointByCodeResult {
   const [updates, setUpdates] = useState<PointUpdateItem[]>([]);
   const [validating, setValidating] = useState(false);
   const [moderatorVerifying, setModeratorVerifying] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
+  const [statusRequesting, setStatusRequesting] = useState(false);
+  const [statusHistory, setStatusHistory] = useState<PointStatusHistoryItem[]>([]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -73,18 +83,18 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     };
   }, [code]);
 
-  // Cuando el punto ya cargó, trae su timeline de novedades (requiere el id).
+  // Cuando el punto ya cargó, trae su timeline de novedades e historial de estado.
   useEffect(() => {
     if (!point) return;
     let cancelled = false;
-    api
-      .get<PointUpdateItem[]>(`/points/${point.id}/updates`)
-      .then((data) => {
-        if (!cancelled) setUpdates(data);
-      })
-      .catch(() => {
-        /* timeline opcional: no bloquea el detalle */
-      });
+    Promise.all([
+      api.get<PointUpdateItem[]>(`/points/${point.id}/updates`).catch(() => [] as PointUpdateItem[]),
+      api.get<PointStatusHistoryItem[]>(`/points/${point.id}/status-history`).catch(() => [] as PointStatusHistoryItem[]),
+    ]).then(([data, history]) => {
+      if (cancelled) return;
+      setUpdates(data);
+      setStatusHistory(history);
+    });
     return () => {
       cancelled = true;
     };
@@ -132,6 +142,40 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     }
   }
 
+  // Cambio de estado del ciclo de vida (creador o moderador). Actualiza el punto
+  // in-place para reflejar el nuevo estado en la UI y recarga el historial.
+  async function changeStatus(status: "resolved" | "cancelled" | "active") {
+    if (!point) return;
+    setStatusChanging(true);
+    try {
+      await api.post(`/points/${point.id}/status`, { status });
+      setPoint((prev) => (prev ? { ...prev, status } : prev));
+      try {
+        const history = await api.get<PointStatusHistoryItem[]>(`/points/${point.id}/status-history`);
+        setStatusHistory(history);
+      } catch {
+        /* historial secundario */
+      }
+    } catch {
+      /* el error lo maneja el componente vía ApiError */
+    } finally {
+      setStatusChanging(false);
+    }
+  }
+
+  // Solicitud de cambio de estado (usuario no creador ni moderador).
+  async function requestStatusChange(status: "resolved" | "cancelled" | "active", reason?: string) {
+    if (!point) return;
+    setStatusRequesting(true);
+    try {
+      await api.post(`/points/${point.id}/status-requests`, { status, reason });
+    } catch {
+      /* error silencioso: el usuario puede reintentar */
+    } finally {
+      setStatusRequesting(false);
+    }
+  }
+
   return {
     point,
     notFound,
@@ -146,5 +190,10 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     submitting,
     submitNovedad,
     validate,
+    statusChanging,
+    changeStatus,
+    statusRequesting,
+    requestStatusChange,
+    statusHistory,
   };
 }

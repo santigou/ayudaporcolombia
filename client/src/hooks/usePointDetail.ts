@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { ContactInfo, PointLocationEntry, PointUpdateItem } from "../types";
+import type { ContactInfo, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem } from "../types";
 
 interface UsePointDetailResult {
   updates: PointUpdateItem[];
   contacts: ContactInfo[];
   locations: PointLocationEntry[];
   createdByEmail: string | null;
+  createdById: string | null;
   validationCount: number;
   userValidated: boolean;
   validating: boolean;
@@ -20,6 +21,14 @@ interface UsePointDetailResult {
   submitting: boolean;
   submitNovedad: () => Promise<void>;
   validate: () => Promise<void>;
+  // Cambio de estado del ciclo de vida (creador o moderador) y solicitud de cambio.
+  statusChanging: boolean;
+  changeStatus: (status: "resolved" | "cancelled" | "active") => Promise<void>;
+  statusRequesting: boolean;
+  requestStatusChange: (status: "resolved" | "cancelled" | "active", reason?: string) => Promise<void>;
+  // Historial de cambios de estado (tab "Estado").
+  statusHistory: PointStatusHistoryItem[];
+  reloadStatusHistory: () => Promise<void>;
 }
 
 // Carga el detalle "pesado" de un punto (novedades, contactos, ubicaciones
@@ -30,10 +39,14 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
   const [contacts, setContacts] = useState<ContactInfo[]>([]);
   const [locations, setLocations] = useState<PointLocationEntry[]>([]);
   const [createdByEmail, setCreatedByEmail] = useState<string | null>(null);
+  const [createdById, setCreatedById] = useState<string | null>(null);
   const [validationCount, setValidationCount] = useState(0);
   const [userValidated, setUserValidated] = useState(false);
   const [validating, setValidating] = useState(false);
   const [moderatorVerifying, setModeratorVerifying] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
+  const [statusRequesting, setStatusRequesting] = useState(false);
+  const [statusHistory, setStatusHistory] = useState<PointStatusHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -45,16 +58,19 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     setError(null);
     Promise.all([
       api.get<PointUpdateItem[]>(`/points/${pointId}/updates`),
-      api.get<{ contacts?: ContactInfo[]; locations?: PointLocationEntry[]; createdByEmail?: string | null; validationCount?: number; userValidated?: boolean }>(`/points/${pointId}`),
+      api.get<{ contacts?: ContactInfo[]; locations?: PointLocationEntry[]; createdByEmail?: string | null; createdById?: string | null; validationCount?: number; userValidated?: boolean }>(`/points/${pointId}`),
+      api.get<PointStatusHistoryItem[]>(`/points/${pointId}/status-history`).catch(() => [] as PointStatusHistoryItem[]),
     ])
-      .then(([updatesData, detailData]) => {
+      .then(([updatesData, detailData, historyData]) => {
         if (cancelled) return;
         setUpdates(updatesData);
         setContacts(detailData.contacts ?? []);
         setLocations(detailData.locations ?? []);
         setCreatedByEmail(detailData.createdByEmail ?? null);
+        setCreatedById(detailData.createdById ?? null);
         setValidationCount(detailData.validationCount ?? 0);
         setUserValidated(detailData.userValidated ?? false);
+        setStatusHistory(historyData);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -67,6 +83,16 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
       cancelled = true;
     };
   }, [pointId]);
+
+  // Recarga solo el historial de estado (tras un cambio aplicado).
+  async function reloadStatusHistory() {
+    try {
+      const data = await api.get<PointStatusHistoryItem[]>(`/points/${pointId}/status-history`);
+      setStatusHistory(data);
+    } catch {
+      /* el historial es secundario: no bloquea la UI */
+    }
+  }
 
   async function submitNovedad() {
     if (!message.trim()) return;
@@ -124,11 +150,44 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     }
   }
 
+  // Cambio de estado del ciclo de vida: lo usa el creador del punto o un moderador.
+  // El backend valida permisos y la transición. Tras el éxito, recargamos el
+  // historial para que el tab "Estado" refleje el nuevo cambio de inmediato.
+  async function changeStatus(status: "resolved" | "cancelled" | "active") {
+    setStatusChanging(true);
+    setError(null);
+    try {
+      await api.post(`/points/${pointId}/status`, { status });
+      await reloadStatusHistory();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No pudimos cambiar el estado.");
+      throw err;
+    } finally {
+      setStatusChanging(false);
+    }
+  }
+
+  // Solicitud de cambio de estado: usuario que no es creador ni moderador propone
+  // un estado objetivo + motivo. Queda pendiente hasta aprobación del moderador.
+  async function requestStatusChange(status: "resolved" | "cancelled" | "active", reason?: string) {
+    setStatusRequesting(true);
+    setError(null);
+    try {
+      await api.post(`/points/${pointId}/status-requests`, { status, reason });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No pudimos enviar la solicitud.");
+      throw err;
+    } finally {
+      setStatusRequesting(false);
+    }
+  }
+
   return {
     updates,
     contacts,
     locations,
     createdByEmail,
+    createdById,
     validationCount,
     userValidated,
     validating,
@@ -141,5 +200,11 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     submitting,
     submitNovedad,
     validate,
+    statusChanging,
+    changeStatus,
+    statusRequesting,
+    requestStatusChange,
+    statusHistory,
+    reloadStatusHistory,
   };
 }

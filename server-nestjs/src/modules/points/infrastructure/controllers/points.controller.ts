@@ -12,6 +12,12 @@ import { AuthenticatedRequest } from '../../../../shared/infrastructure/middlewa
 
 const updateSchema = z.object({ message: z.string().min(1).max(500) });
 
+// Estados objetivo válidos para el cambio de estado del ciclo de vida de un Punto.
+const statusChangeSchema = z.object({
+  status: z.enum(['resolved', 'cancelled', 'active']),
+  reason: z.string().max(500).optional(),
+});
+
 // Multipart envía todos los campos como strings. Parsea los que llegan como
 // JSON-string (locations, contacts, supplies) y los que ya vienen parseados.
 function parseJsonArray<T>(raw: unknown): T[] {
@@ -50,6 +56,39 @@ export class PointsController {
   @Get(':id/updates')
   async getUpdates(@Param('id') id: string) {
     return this.pointService.getUpdates(id);
+  }
+
+  // Historial de cambios de estado (ciclo de vida) del punto. Público (si el punto
+  // es accesible). Es la fuente del tab "Estado" del detalle.
+  @Get(':id/status-history')
+  async getStatusHistory(@Param('id') id: string) {
+    return this.pointService.getStatusHistory(id);
+  }
+
+  // Cambio de estado del ciclo de vida (resolved/cancelled/reactivar). Lo usa el
+  // creador del punto o un moderador (la autorización fina la resuelve el servicio).
+  @Post(':id/status')
+  @UseGuards(AuthGuard)
+  @RequireAuth()
+  async changeStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(statusChangeSchema)) body: { status: string; reason?: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.pointService.changeStatus(id, body.status, req.user!, body.reason);
+  }
+
+  // Solicitud de cambio de estado: la hace un usuario que NO es creador ni
+  // moderador. Queda pendiente hasta que un moderador la apruebe.
+  @Post(':id/status-requests')
+  @UseGuards(AuthGuard)
+  @RequireAuth()
+  async requestStatusChange(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(statusChangeSchema)) body: { status: string; reason?: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.pointService.requestStatusChange(id, req.user!.userId, body.status, body.reason);
   }
 
   @Post(':id/updates')

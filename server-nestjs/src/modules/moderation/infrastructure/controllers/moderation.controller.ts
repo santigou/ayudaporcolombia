@@ -36,6 +36,12 @@ export class ModerationController {
     return this.moderationService.getPendingRequests();
   }
 
+  // Cola de solicitudes de cambio de estado (ciclo de vida) hechas por usuarios.
+  @Get('status-requests')
+  async pendingStatusRequests() {
+    return this.moderationService.getPendingStatusRequests();
+  }
+
   @Post('requests/:id/approve')
   async approveRequest(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.moderationService.approveRequest(id, req.user!.userId);
@@ -44,5 +50,16 @@ export class ModerationController {
   @Post('requests/:id/reject')
   async rejectRequest(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.moderationService.rejectRequest(id, req.user!.userId);
+  }
+
+  // Aprobar/rechazar solicitudes de cambio de estado de un Punto.
+  @Post('status-requests/:id/approve')
+  async approveStatusRequest(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.moderationService.approveStatusRequest(id, req.user!.userId);
+  }
+
+  @Post('status-requests/:id/reject')
+  async rejectStatusRequest(@Param('id') id: string, @Req() req: AuthenticatedRequest, @Body() body: { note?: string }) {
+    return this.moderationService.rejectStatusRequest(id, req.user!.userId, body.note);
   }
 }

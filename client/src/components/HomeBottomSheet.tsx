@@ -30,6 +30,12 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
     onPointUpdated?.({ ...point, verificationStatus: "approved" });
   };
 
+  // Cambio de estado del ciclo de vida: tras éxito, propaga el nuevo status.
+  const handleStatusChange = async (status: "resolved" | "cancelled" | "active") => {
+    await detail.changeStatus(status);
+    onPointUpdated?.({ ...point, status });
+  };
+
   // Cerrar con tecla Escape (accesibilidad).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -52,7 +58,11 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
         </button>
         <h2 className="pr-10 text-base font-bold text-gray-900">{point.title}</h2>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          {isNeedHelp ? (
+          {point.status === "resolved" ? (
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+              Resuelto
+            </span>
+          ) : isNeedHelp ? (
             point.verificationStatus === "approved" ? (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                 ✓ Verificado
@@ -105,12 +115,18 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
           point={point}
           nearbyPoints={nearbyPoints}
           createdByEmail={detail.createdByEmail}
+          createdById={detail.createdById}
           validationCount={detail.validationCount}
           userValidated={detail.userValidated}
           validating={detail.validating}
           onValidate={detail.validate}
           moderatorVerifying={detail.moderatorVerifying}
           onModeratorVerify={handleModeratorVerify}
+          onStatusChange={handleStatusChange}
+          statusChanging={detail.statusChanging}
+          onRequestStatusChange={detail.requestStatusChange}
+          statusRequesting={detail.statusRequesting}
+          statusHistory={detail.statusHistory}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

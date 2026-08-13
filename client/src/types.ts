@@ -90,11 +90,53 @@ export interface Point {
   supplies?: { name: string; targetQuantity: number | null; receivedQuantity: number | null; unit: string | null }[];
   photos: string[];
   contacts?: ContactInfo[];
+  // Id del creador (null = anónimo). Solo en detalle; sirve para saber si el
+  // usuario actual es el dueño y puede cambiar el estado directamente.
+  createdById?: string | null;
   // Verificaciones comunitarias. Siempre viene del backend (listado y detalle).
   validationCount: number;
   // Si el usuario actual ya verificó este punto (solo en detalle).
   userValidated?: boolean;
 }
+
+// Solicitud de cambio de estado (ciclo de vida) hecha por un usuario. La revisa
+// un moderador en el panel; al aprobarse se aplica el cambio sobre el punto.
+export interface PointStatusRequestItem {
+  id: string;
+  targetStatus: PointStatus;
+  reason: string | null;
+  createdAt: string;
+  point: {
+    id: string;
+    code: string;
+    title: string;
+    type: PointType;
+    status: PointStatus;
+    verificationStatus: VerificationStatus;
+  };
+  user: { id: string; email: string };
+}
+
+// Entrada del historial de cambios de estado (ciclo de vida) de un Punto.
+// Una fila por transición aplicada (directa o por solicitud aprobada).
+export interface PointStatusHistoryItem {
+  id: string;
+  fromStatus: PointStatus;
+  toStatus: PointStatus;
+  reason: string | null;
+  actorEmail: string | null;
+  createdAt: string;
+}
+
+// Etiqueta legible para cada PointStatus (badges y paneles).
+export const STATUS_LABELS: Record<PointStatus, string> = {
+  pending: "Pendiente",
+  active: "Activo",
+  resolved: "Resuelto",
+  rejected: "Rechazado",
+  expired: "Expirado",
+  cancelled: "Cancelado",
+};
 
 export interface ModeratorRequestSummary {
   id: string;

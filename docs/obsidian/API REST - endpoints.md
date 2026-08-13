@@ -32,9 +32,12 @@ Validaciones (zod): `register` → email, password 8–100. `login` → email + 
 | GET | `/` | — | Lista pública **por zona visible**, ordenada por verificaciones (desc) + recientes. Query: `type` (`need_help`/`offer_help`), `minLat`, `maxLat`, `minLng`, `maxLng` (bounding box del mapa). Cap de 300; `{points, truncated}`. |
 | GET | `/code/:code` | — | Punto por su código público (case-insensitive, se normaliza a mayúsculas). Para la página compartible `/p/:code`. |
 | POST | `/:id/validate` | ✅ | Verificación comunitaria ("like"). Idempotente: no doble-conta. Incrementa `validationCount` atómicamente (ver [[Verificación de puntos]]). |
-| GET | `/:id` | — | Detalle si es visible públicamente; si no, 404. |
+| GET | `/:id` | — | Detalle si es visible públicamente; si no, 404. Incluye `createdById`. |
 | GET | `/:id/updates` | — | Timeline de novedades (`PointUpdate`) del punto (si es visible). |
 | POST | `/:id/updates` | ✅ | Publica una novedad. Body `{ message }` (1–500). Crea `PointUpdate`. |
+| POST | `/:id/status` | ✅ | Cambio de estado del ciclo de vida. Body `{ status, reason? }` (`status ∈ {resolved,cancelled,active}`). Autoriza creador **o** moderador (lo resuelve el servicio). Valida la transición. |
+| POST | `/:id/status-requests` | ✅ | Solicitud de cambio de estado (usuario no creador/moderador). Body `{ status, reason? }`. Crea `PointStatusRequest(pending)`. Una pendiente por (usuario, punto). |
+| GET | `/:id/status-history` | — | Historial de cambios de estado (ciclo de vida) aplicados al punto. Fuente del tab "Estado". |
 | POST | `/` | ✅ offer_help · – need_help | Crea punto. `multipart/form-data` con fotos (max 5). `offer_help` exige sesión; `need_help` puede ser anónimo. Devuelve el `Point` creado (incluye `code`). |
 
 **GET `/`** devuelve `{ points: [...], truncated }`. Por punto: `{id,code,type,title,description,status,verificationStatus,validationCount,createdAt,helpType,location:{lat,lng,address,city,neighborhood}|null,photos:string[]}`. Filtra por zona (`minLat/maxLat/minLng/maxLng`):
@@ -59,6 +62,9 @@ Todas requieren `requireAuth` + `requireModerator`.
 | GET | `/requests` | Cola de solicitudes de moderador pendientes |
 | POST | `/requests/:id/approve` | Aprueba + asciende a `moderator` (tx) |
 | POST | `/requests/:id/reject` | Rechaza la solicitud |
+| GET | `/status-requests` | Cola de solicitudes de cambio de estado pendientes |
+| POST | `/status-requests/:id/approve` | Aplica el cambio de estado (re-valida la transición) + marca aprobada (tx) |
+| POST | `/status-requests/:id/reject` | Rechaza la solicitud |
 
 ## Estáticos (sin `/api`)
 
