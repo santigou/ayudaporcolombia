@@ -134,7 +134,7 @@ export class PointService {
     type: 'need_help' | 'offer_help'; title: string; description: string; helpTypeName?: string;
     contacts?: ContactInput[]; locations?: LocationInput[]; supplies?: SupplyInput[];
     lat?: number; lng?: number; addressText?: string; city?: string; neighborhood?: string;
-    expiresAt?: Date; photos: { name: string; dataUrl: string }[];
+    expiresAt?: Date; photoUrls: string[];
   }, userId?: string) {
     if (!data.helpTypeName) throw new BadRequestException('Indica el tipo de ayuda');
     if (data.type === 'offer_help' && !userId) throw new BadRequestException('Los puntos de ayuda requieren iniciar sesión');
@@ -160,7 +160,7 @@ export class PointService {
         locations: { create: locations.map((l) => ({ locationType: l.type as any, location: { create: { city: l.city ?? '', neighborhood: l.neighborhood ?? '', address: l.addressText ?? null, latitude: l.lat, longitude: l.lng } } })) as any },
         contacts: { create: contacts.map((c) => ({ type: c.type, value: c.value, isPublic: true })) },
         ...(supplyRows.length ? { supplies: { create: supplyRows } } : {}),
-        ...(data.photos.length ? { attachments: { create: data.photos.map((p) => ({ url: `/uploads/${p.name}`, type: 'image' as const })) } } : {}),
+        ...(data.photoUrls.length ? { attachments: { create: data.photoUrls.map((url) => ({ url, type: 'image' as const })) } } : {}),
       },
     });
   }
