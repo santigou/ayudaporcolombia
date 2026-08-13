@@ -34,6 +34,11 @@ RUN npm run build -w client
 FROM node:20-alpine AS back
 WORKDIR /app
 
+# OpenSSL 1.1.x para los motores de Prisma (migrate/query engine). Alpine trae
+# OpenSSL 3.x y Prisma necesita 1.1.x; sin esto, `prisma migrate deploy` falla
+# con "Prisma failed to detect the libssl/openssl version" al arrancar.
+RUN apk add --no-cache openssl1.1-compat
+
 # Deps de producción + CLI de Prisma (necesaria para `migrate deploy` en el
 # arranque, ya que `prisma` es una devDependency).
 COPY package.json package-lock.json ./
