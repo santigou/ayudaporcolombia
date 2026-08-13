@@ -71,9 +71,9 @@ services:
     depends_on:
       - back
     # Puerto expuesto SOLO en localhost (127.0.0.1): el SPA queda en
-    # http://localhost:8080 para probar. En el servidor el público llega por tunnel.
+    # http://localhost:8081 para probar. En el servidor el público llega por tunnel.
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8081:80"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
