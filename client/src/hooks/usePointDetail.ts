@@ -7,12 +7,16 @@ interface UsePointDetailResult {
   contacts: ContactInfo[];
   locations: PointLocationEntry[];
   createdByEmail: string | null;
+  validationCount: number;
+  userValidated: boolean;
+  validating: boolean;
   loading: boolean;
   error: string | null;
   message: string;
   setMessage: (v: string) => void;
   submitting: boolean;
   submitNovedad: () => Promise<void>;
+  validate: () => Promise<void>;
 }
 
 // Carga el detalle "pesado" de un punto (novedades, contactos, ubicaciones
@@ -23,6 +27,9 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
   const [contacts, setContacts] = useState<ContactInfo[]>([]);
   const [locations, setLocations] = useState<PointLocationEntry[]>([]);
   const [createdByEmail, setCreatedByEmail] = useState<string | null>(null);
+  const [validationCount, setValidationCount] = useState(0);
+  const [userValidated, setUserValidated] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -34,7 +41,7 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     setError(null);
     Promise.all([
       api.get<PointUpdateItem[]>(`/points/${pointId}/updates`),
-      api.get<{ contacts?: ContactInfo[]; locations?: PointLocationEntry[]; createdByEmail?: string | null }>(`/points/${pointId}`),
+      api.get<{ contacts?: ContactInfo[]; locations?: PointLocationEntry[]; createdByEmail?: string | null; validationCount?: number; userValidated?: boolean }>(`/points/${pointId}`),
     ])
       .then(([updatesData, detailData]) => {
         if (cancelled) return;
@@ -42,6 +49,8 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
         setContacts(detailData.contacts ?? []);
         setLocations(detailData.locations ?? []);
         setCreatedByEmail(detailData.createdByEmail ?? null);
+        setValidationCount(detailData.validationCount ?? 0);
+        setUserValidated(detailData.userValidated ?? false);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -70,16 +79,36 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     }
   }
 
+  // Verificación comunitaria: el usuario confirma que el punto es real (1 por usuario).
+  async function validate() {
+    if (userValidated || validating) return;
+    setValidating(true);
+    setError(null);
+    try {
+      const res = await api.post<{ validationCount: number }>(`/points/${pointId}/validate`);
+      setValidationCount(res.validationCount);
+      setUserValidated(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No pudimos registrar tu verificación.");
+    } finally {
+      setValidating(false);
+    }
+  }
+
   return {
     updates,
     contacts,
     locations,
     createdByEmail,
+    validationCount,
+    userValidated,
+    validating,
     loading,
     error,
     message,
     setMessage,
     submitting,
     submitNovedad,
+    validate,
   };
 }

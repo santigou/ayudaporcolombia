@@ -1,30 +1,62 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as cookieParser from 'cookie-parser';
+import * as path from 'path';
+import * as fs from 'fs';
+import { json } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+// Carga el .env con ruta ABSOLUTA (relativa a este archivo) antes que nada,
+// para que Prisma y los módulos encuentren DATABASE_URL sin depender del CWD.
+// Compila a dist/main.js → sube un nivel para llegar a server-nestjs/.env.
+import * as dotenv from 'dotenv';
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
 
-  // CORS configuration
+  // CORS configuration (con credenciales para la cookie httpOnly del JWT).
   const clientOrigin = configService.get<string>('CLIENT_ORIGIN') || 'http://localhost:5173';
   app.enableCors({
     origin: clientOrigin,
     credentials: true,
   });
 
-  // Global validation pipe
+  // Cookie parser: necesario para leer la cookie `token` (JWT) en el middleware.
+  app.use(cookieParser());
+
+  // Body parser con límite amplio para FormData con fotos en base64 si llegara.
+  app.use(json({ limit: '15mb' }));
+
+  // Global validation pipe.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false, // multipart/FormData envía campos extra
       transform: true,
     }),
   );
 
-  // Set prefix for all routes
-  app.setGlobalPrefix('');
+  // Ficheros estáticos: fotos subidas a /uploads.
+  app.useStaticAssets(path.join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+
+  // En producción, sirve el SPA de React compilado (client/dist) y deja el
+  // fallback a index.html para que React Router maneje las rutas (p. ej.
+  // /moderador, /p/:code). En dev, Vite sirve el cliente por separado (:5173).
+  const clientDist = path.join(process.cwd(), '..', 'client', 'dist');
+  if (fs.existsSync(clientDist)) {
+    app.useStaticAssets(clientDist);
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads') && !req.path.match(/\.[^/]+$/)) {
+        res.sendFile(path.join(clientDist, 'index.html'));
+        return;
+      }
+      next();
+    });
+  }
 
   const port = configService.get<number>('PORT') || 4000;
   await app.listen(port);

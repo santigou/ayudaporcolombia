@@ -7,6 +7,7 @@ import { CONTACT_LABELS, locationLabel, type ContactInfo, type Point } from "../
 interface ModeratorPoint extends Point {
   contacts: ContactInfo[];
   createdBy: { id: string; email: string } | null;
+  validationCount: number;
 }
 
 interface ModeratorRequestItem {
@@ -96,6 +97,16 @@ export function ModeratorDashboard() {
                     {point.contacts.map((c) => `${CONTACT_LABELS[c.type]}: ${c.value}`).join(" · ")}
                   </p>
                 )}
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-600">
+                    {point.code}
+                  </code>
+                  {point.validationCount > 0 && (
+                    <span className="text-xs font-medium text-emerald-700">
+                      ✓ {point.validationCount} verificación{point.validationCount !== 1 ? "es" : ""}
+                    </span>
+                  )}
+                </div>
                 <div className="mt-2 flex items-center gap-2">
                   {point.createdBy ? (
                     <>

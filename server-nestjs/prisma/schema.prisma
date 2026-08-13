@@ -59,11 +59,9 @@ enum ValidationStatus {
 
 model User {
   id           String   @id @default(cuid())
-  name         String
   email        String   @unique
   passwordHash String
   role         Role     @default(user)
-  contactInfo  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -91,6 +89,7 @@ model ModeratorRequest {
 
 model Point {
   id                 String             @id @default(cuid())
+  code               String             @unique
   type               PointType
   title              String
   description        String
@@ -118,6 +117,7 @@ model Point {
   @@index([verificationStatus])
   @@index([helpTypeId])
   @@index([createdAt])
+  @@index([code])
 }
 
 model HelpType {

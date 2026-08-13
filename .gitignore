@@ -3,7 +3,8 @@ dist/
 build/
 .env
 .env.local
-server/uploads/*
-!server/uploads/.gitkeep
+server-nestjs/uploads/*
+!server-nestjs/uploads/.gitkeep
 *.log
 .DS_Store
+

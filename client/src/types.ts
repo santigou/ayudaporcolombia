@@ -77,6 +77,7 @@ export interface BBox {
 
 export interface Point {
   id: string;
+  code: string;
   type: PointType;
   title: string;
   description: string;
@@ -89,6 +90,9 @@ export interface Point {
   supplies?: { name: string; targetQuantity: number | null; receivedQuantity: number | null; unit: string | null }[];
   photos: string[];
   contacts?: ContactInfo[];
+  // Verificaciones comunitarias (solo en detalle).
+  validationCount?: number;
+  userValidated?: boolean;
 }
 
 export interface ModeratorRequestSummary {

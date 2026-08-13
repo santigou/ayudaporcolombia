@@ -29,6 +29,10 @@ export function PointDetail({ point, nearbyPoints, onClose }: PointDetailProps) 
           point={point}
           nearbyPoints={nearbyPoints}
           createdByEmail={detail.createdByEmail}
+          validationCount={detail.validationCount}
+          userValidated={detail.userValidated}
+          validating={detail.validating}
+          onValidate={detail.validate}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

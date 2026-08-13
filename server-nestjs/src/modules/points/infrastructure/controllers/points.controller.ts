@@ -1,138 +1,118 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
-import { CreatePointUseCase } from '../../application/use-cases/create-point.use-case';
-import { GetPointsUseCase } from '../../application/use-cases/get-points.use-case';
-import { ApprovePointUseCase } from '../../application/use-cases/approve-point.use-case';
-import { CreatePointDto, CreatePointDtoSchema } from '../../application/dto/create-point.dto';
+﻿import {
+  Controller, Get, Post, Body, Param, Query, Req, UseGuards, BadRequestException, NotFoundException,
+} from '@nestjs/common';
+import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
+import { PointService } from '../../application/point.service';
 import { ZodValidationPipe } from '../../../../shared/application/validators/validation.pipe';
-import { AuthGuard, RolesGuard, AuthenticatedRequest } from '../../../../shared/infrastructure/guards/auth.guard';
-import { Roles, RequireAuth } from '../../../../shared/application/decorators/roles.decorator';
-import { PointMapper } from '../mappers/point.mapper';
-import { Role, PointType } from '../../../../shared/domain/enums';
+import { AuthGuard } from '../../../../shared/infrastructure/guards/auth.guard';
+import { RequireAuth } from '../../../../shared/application/decorators/roles.decorator';
+import { AuthenticatedRequest } from '../../../../shared/infrastructure/middleware/auth.middleware';
+
+const updateSchema = z.object({ message: z.string().min(1).max(500) });
+
+// Schema de creaciÃ³n flexible: acepta contacts/locations/supplies como strings
+// JSON (FormData) o ya parseados. Las fotos vienen como { name, dataUrl }[].
+const createSchema = z.object({
+  type: z.enum(['need_help', 'offer_help']),
+  title: z.string().min(3).max(150),
+  description: z.string().min(10).max(2000),
+  helpTypeName: z.string().min(2).max(80).optional(),
+  contacts: z.union([z.string(), z.array(z.any())]).optional(),
+  locations: z.union([z.string(), z.array(z.any())]).optional(),
+  supplies: z.union([z.string(), z.array(z.any())]).optional(),
+  lat: z.coerce.number().optional(),
+  lng: z.coerce.number().optional(),
+  addressText: z.string().max(300).optional(),
+  city: z.string().max(120).optional(),
+  neighborhood: z.string().max(120).optional(),
+  expiresAt: z.coerce.date().optional(),
+  photos: z.array(z.object({ name: z.string(), dataUrl: z.string() })).optional(),
+});
+
+function parseJsonArray<T>(raw: unknown): T[] {
+  if (typeof raw === 'string') {
+    try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : []; } catch { return []; }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+function savePhoto(dataUrl: string, name: string): { name: string; dataUrl: string } {
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  // dataUrl: "data:image/png;base64,...."
+  const match = dataUrl.match(/^data:([\w/]+);base64,(.+)$/);
+  if (!match) return { name, dataUrl };
+  const ext = match[1].split('/')[1]?.split('+')[0] || 'png';
+  const filename = `${name.replace(/\.[^.]+$/, '')}.${ext}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), Buffer.from(match[2], 'base64'));
+  return { name: filename, dataUrl };
+}
 
 @Controller('api/points')
 export class PointsController {
-  constructor(
-    private readonly createPointUseCase: CreatePointUseCase,
-    private readonly getPointsUseCase: GetPointsUseCase,
-    private readonly approvePointUseCase: ApprovePointUseCase,
-  ) {}
+  constructor(private readonly pointService: PointService) {}
 
   @Get()
-  async getPublicPoints(@Query('type') type?: string) {
-    try {
-      const pointType = type ? (type as PointType) : undefined;
-      const points = await this.getPointsUseCase.execute({
-        type: pointType,
-        includeExpired: false,
-      });
+  async list(@Query() q: Record<string, string>) {
+    const type = q.type === 'need_help' || q.type === 'offer_help' ? q.type : undefined;
+    return this.pointService.getPublicPoints({
+      type,
+      minLat: Number(q.minLat), maxLat: Number(q.maxLat),
+      minLng: Number(q.minLng), maxLng: Number(q.maxLng),
+    });
+  }
 
-      return points.map(point => PointMapper.toResponse(point));
-    } catch (error) {
-      return { error: error.message };
-    }
+  @Get('code/:code')
+  async getByCode(@Param('code') code: string, @Req() req: AuthenticatedRequest) {
+    return this.pointService.getByCode(code, req.user?.userId);
+  }
+
+  @Post(':id/validate')
+  @UseGuards(AuthGuard)
+  @RequireAuth()
+  async validate(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.pointService.validate(id, req.user!.userId);
+  }
+
+  @Get(':id/updates')
+  async getUpdates(@Param('id') id: string) {
+    return this.pointService.getUpdates(id);
+  }
+
+  @Post(':id/updates')
+  @UseGuards(AuthGuard)
+  @RequireAuth()
+  async postUpdate(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateSchema)) body: { message: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.pointService.createUpdate(id, req.user!.userId, body.message);
   }
 
   @Get(':id')
-  async getPointById(@Param('id') id: string) {
-    try {
-      const point = await this.getPointsUseCase.getById(id);
-      
-      if (!point) {
-        return { error: 'Point not found' };
-      }
-
-      return PointMapper.toResponse(point);
-    } catch (error) {
-      return { error: error.message };
-    }
-  }
-
-  @Get('nearby/:lat/:lng')
-  async getNearbyPoints(
-    @Param('lat') lat: string,
-    @Param('lng') lng: string,
-    @Query('radius') radius?: string,
-    @Query('type') type?: string,
-  ) {
-    try {
-      const latitude = parseFloat(lat);
-      const longitude = parseFloat(lng);
-      const radiusKm = radius ? parseFloat(radius) : 10;
-      const pointType = type ? (type as PointType) : undefined;
-
-      const points = await this.getPointsUseCase.getNearbyPoints(
-        latitude,
-        longitude,
-        radiusKm,
-        pointType,
-      );
-
-      return points.map(point => PointMapper.toResponse(point));
-    } catch (error) {
-      return { error: error.message };
-    }
+  async getById(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.pointService.getById(id, req.user?.userId);
   }
 
   @Post()
-  @UseGuards(AuthGuard)
-  @RequireAuth()
-  async createPoint(
-    @Req() req: AuthenticatedRequest,
-    @Body(new ZodValidationPipe(CreatePointDtoSchema)) dto: CreatePointDto,
-  ) {
-    try {
-      const point = await this.createPointUseCase.execute(dto, req.user.userId);
-      return PointMapper.toResponse(point);
-    } catch (error) {
-      return { error: error.message };
-    }
-  }
-
-  @Get('moderation/pending')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.MODERATOR)
-  async getPendingModeration() {
-    try {
-      const points = await this.getPointsUseCase.getPendingModeration();
-      return points.map(point => PointMapper.toResponse(point));
-    } catch (error) {
-      return { error: error.message };
-    }
-  }
-
-  @Post(':id/approve')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.MODERATOR)
-  async approvePoint(@Param('id') id: string) {
-    try {
-      const point = await this.approvePointUseCase.execute(id);
-      return PointMapper.toResponse(point);
-    } catch (error) {
-      return { error: error.message };
-    }
-  }
-
-  @Post(':id/reject')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.MODERATOR)
-  async rejectPoint(@Param('id') id: string) {
-    try {
-      const point = await this.approvePointUseCase.reject(id);
-      return PointMapper.toResponse(point);
-    } catch (error) {
-      return { error: error.message };
-    }
-  }
-
-  @Post(':id/resolve')
-  @UseGuards(AuthGuard)
-  @RequireAuth()
-  async resolvePoint(@Param('id') id: string) {
-    try {
-      const point = await this.approvePointUseCase.resolve(id);
-      return PointMapper.toResponse(point);
-    } catch (error) {
-      return { error: error.message };
-    }
+  async create(@Body(new ZodValidationPipe(createSchema)) body: z.infer<typeof createSchema>, @Req() req: AuthenticatedRequest) {
+    const contacts = parseJsonArray(body.contacts) as any[];
+    const locations = parseJsonArray(body.locations) as any[];
+    const supplies = parseJsonArray(body.supplies) as any[];
+    const photos = (body.photos ?? []).map((p) => savePhoto(p.dataUrl, p.name));
+    const point = await this.pointService.create(
+      {
+        type: body.type, title: body.title, description: body.description,
+        helpTypeName: body.helpTypeName, contacts, locations, supplies,
+        lat: body.lat, lng: body.lng, addressText: body.addressText,
+        city: body.city, neighborhood: body.neighborhood, expiresAt: body.expiresAt,
+        photos,
+      },
+      req.user?.userId,
+    );
+    return point;
   }
 }

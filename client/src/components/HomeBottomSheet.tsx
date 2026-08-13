@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { usePointDetail } from "../hooks/usePointDetail";
 import { PointDetailContent } from "./PointDetailContent";
+import { VerifyBar } from "./VerifyBar";
 import { locationLabel, type Point } from "../types";
 
 interface HomeBottomSheetProps {
@@ -68,6 +69,14 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomShee
             </span>
           )}
         </div>
+        <VerifyBar
+          code={point.code}
+          validationCount={detail.validationCount}
+          userValidated={detail.userValidated}
+          validating={detail.validating}
+          onValidate={detail.validate}
+          className="mt-2"
+        />
       </header>
 
       {/* Contenido con pestañas (Información / Novedades). Cada pestaña gestiona
@@ -78,6 +87,10 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose }: HomeBottomShee
           point={point}
           nearbyPoints={nearbyPoints}
           createdByEmail={detail.createdByEmail}
+          validationCount={detail.validationCount}
+          userValidated={detail.userValidated}
+          validating={detail.validating}
+          onValidate={detail.validate}
           updates={detail.updates}
           contacts={detail.contacts}
           locations={detail.locations}

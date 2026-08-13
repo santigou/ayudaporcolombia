@@ -4,6 +4,7 @@ import { CreatePoint } from "./pages/CreatePoint";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ModeratorDashboard } from "./pages/ModeratorDashboard";
+import { PointByCode } from "./pages/PointByCode";
 import { useAuth } from "./context/AuthContext";
 
 function Navbar() {
@@ -52,6 +53,7 @@ export function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Register />} />
           <Route path="/moderador" element={<ModeratorDashboard />} />
+          <Route path="/p/:code" element={<PointByCode />} />
         </Routes>
       </div>
     </div>

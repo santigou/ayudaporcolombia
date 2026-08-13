@@ -1,38 +1,30 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './shared/infrastructure/database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PointsModule } from './modules/points/points.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { AuthMiddleware } from './shared/infrastructure/middleware/auth.middleware';
-import { APP_GUARD } from '@nestjs/core';
-import { AuthGuard } from './shared/infrastructure/guards/auth.guard';
-import { RolesGuard } from './shared/infrastructure/guards/auth.guard';
+import { AuthGuard, RolesGuard } from './shared/infrastructure/guards/auth.guard';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     PrismaModule,
     AuthModule,
     PointsModule,
     ModerationModule,
   ],
   providers: [
-    {
-      provide: APP_GUARD,
-      useClass: AuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule implements NestModule {
+  // El middleware de auth es OPCIONAL y se aplica a todas las rutas: popula
+  // req.user si hay JWT válido, pero no bloquea el acceso.
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(AuthMiddleware).exclude('api/auth/login', 'api/auth/register', 'api/points');
+    consumer.apply(AuthMiddleware).forRoutes('*');
   }
 }

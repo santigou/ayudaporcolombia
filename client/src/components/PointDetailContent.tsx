@@ -11,6 +11,7 @@ import {
 import { PointNovedades } from "./PointNovedades";
 import { ImageGallery } from "./ImageGallery";
 import { PointMiniMap } from "./PointMiniMap";
+import { VerifyBar } from "./VerifyBar";
 
 interface PointDetailContentProps {
   point: Point;
@@ -28,6 +29,11 @@ interface PointDetailContentProps {
   hideTitle?: boolean;
   // Email del creador del punto (null = anónimo, p. ej. need_help sin sesión).
   createdByEmail?: string | null;
+  // Verificación comunitaria.
+  validationCount?: number;
+  userValidated?: boolean;
+  validating?: boolean;
+  onValidate?: () => void;
   // Puntos disponibles para pintar como contexto en el mini-mapa del detalle.
   nearbyPoints?: Point[];
 }
@@ -67,6 +73,10 @@ export function PointDetailContent({
   onSubmitNovedad,
   hideTitle = false,
   createdByEmail = null,
+  validationCount = 0,
+  userValidated = false,
+  validating = false,
+  onValidate,
   nearbyPoints = [],
 }: PointDetailContentProps) {
   const [tab, setTab] = useState<Tab>("info");
@@ -189,6 +199,14 @@ export function PointDetailContent({
                       </span>
                     )}
                   </div>
+                  <VerifyBar
+                    code={point.code}
+                    validationCount={validationCount}
+                    userValidated={userValidated}
+                    validating={validating}
+                    onValidate={onValidate ?? (() => {})}
+                    className="mt-2"
+                  />
                   {isNeedHelp ? (
                     <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                       <p className="font-semibold">Información no verificada</p>
