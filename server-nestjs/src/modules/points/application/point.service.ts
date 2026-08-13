@@ -8,6 +8,19 @@ function isPubliclyVisible(p: { type: string; status: string; verificationStatus
   return false;
 }
 
+// Accesible por CÓDIGO compartible (/p/:code) y verificable por la comunidad.
+// Es MÁS PERMISIVO que el listado del mapa: un offer_help PENDIENTE debe poder
+// abrirse por su link para que la gente lo verifique —esa validación comunitaria
+// es justamente evidencia previa a la aprobación del moderador—. Sí se excluyen
+// los rechazados/expirados/cancelados (ya no son válidos).
+function isAccessibleByCode(p: { type: string; status: string; verificationStatus: string }): boolean {
+  if (p.verificationStatus === 'rejected') return false;
+  if (p.status === 'rejected' || p.status === 'expired' || p.status === 'cancelled') return false;
+  if (p.type === 'offer_help') return p.verificationStatus === 'pending' || p.verificationStatus === 'approved';
+  if (p.type === 'need_help') return p.status === 'active' || p.status === 'resolved';
+  return false;
+}
+
 type RichLocation = {
   locationType: string;
   location: { latitude: number; longitude: number; address: string | null; city: string; neighborhood: string };
@@ -41,13 +54,14 @@ export class PointService {
         ...(opts.type ? { type: opts.type as any } : {}),
         ...(hasBbox ? { locations: { some: { location: { latitude: { gte: opts.minLat!, lte: opts.maxLat! }, longitude: { gte: opts.minLng!, lte: opts.maxLng! } } } } } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ validationCount: 'desc' }, { createdAt: 'desc' }],
       take: FETCH_CAP,
       include: { locations: { include: { location: true } }, helpType: true, attachments: true },
     });
     const visible = points.filter(isPubliclyVisible).map((p) => ({
       id: p.id, code: p.code, type: p.type, title: p.title, description: p.description,
       status: p.status, verificationStatus: p.verificationStatus, createdAt: p.createdAt,
+      validationCount: p.validationCount,
       helpType: p.helpType?.name ?? null, location: primaryLocation(p.locations),
       locations: allLocations(p.locations),
       photos: p.attachments.filter((a) => a.type === 'image').map((a) => a.url),
@@ -78,7 +92,7 @@ export class PointService {
       photos: point.attachments.filter((a) => a.type === 'image').map((a) => a.url),
       updates: point.updates.map((u) => ({ id: u.id, message: u.message, createdAt: u.createdAt })),
       createdByEmail: point.createdBy?.email ?? null,
-      validationCount: point.validations.length,
+      validationCount: point.validationCount,
       userValidated: currentUserId ? point.validations.some((v) => v.userId === currentUserId) : false,
     };
   }
@@ -89,10 +103,11 @@ export class PointService {
       include: {
         locations: { include: { location: true } }, helpType: true,
         contacts: { where: { isPublic: true } }, attachments: true,
+        createdBy: { select: { email: true } },
         validations: { where: { status: 'confirmed' }, select: { userId: true } },
       },
     });
-    if (!point || !isPubliclyVisible(point)) throw new NotFoundException('Punto no encontrado');
+    if (!point || !isAccessibleByCode(point)) throw new NotFoundException('Punto no encontrado');
     return {
       id: point.id, code: point.code, type: point.type, title: point.title, description: point.description,
       status: point.status, verificationStatus: point.verificationStatus, createdAt: point.createdAt,
@@ -100,21 +115,41 @@ export class PointService {
       locations: allLocations(point.locations),
       contacts: point.contacts.map((c) => ({ type: c.type, value: c.value })),
       photos: point.attachments.filter((a) => a.type === 'image').map((a) => a.url),
-      validationCount: point.validations.length,
+      createdByEmail: point.createdBy?.email ?? null,
+      validationCount: point.validationCount,
       userValidated: currentUserId ? point.validations.some((v) => v.userId === currentUserId) : false,
     };
   }
 
   async validate(id: string, userId: string) {
     const point = await this.prisma.point.findUnique({ where: { id }, select: { id: true, type: true, status: true, verificationStatus: true } });
-    if (!point || !isPubliclyVisible(point)) throw new NotFoundException('Punto no encontrado');
-    await this.prisma.validation.upsert({
+    if (!point || !isAccessibleByCode(point)) throw new NotFoundException('Punto no encontrado');
+
+    // Validación comunitaria atómica estilo "likes": solo incrementa el contador
+    // desnormalizado (Point.validationCount) si es una confirmación nueva (antes
+    // no existía o estaba rechazada). Si ya estaba confirmada, no hace nada para
+    // evitar doble conteo. Todo en transacción para consistencia.
+    const existing = await this.prisma.validation.findUnique({
       where: { pointId_userId: { pointId: point.id, userId } },
-      update: { status: 'confirmed' },
-      create: { pointId: point.id, userId, status: 'confirmed' },
+      select: { status: true },
     });
-    const count = await this.prisma.validation.count({ where: { pointId: point.id, status: 'confirmed' } });
-    return { validationCount: count, userValidated: true };
+    if (existing?.status === 'confirmed') {
+      const current = await this.prisma.point.findUnique({ where: { id: point.id }, select: { validationCount: true } });
+      return { validationCount: current?.validationCount ?? 0, userValidated: true };
+    }
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.validation.upsert({
+        where: { pointId_userId: { pointId: point.id, userId } },
+        update: { status: 'confirmed' },
+        create: { pointId: point.id, userId, status: 'confirmed' },
+      }),
+      this.prisma.point.update({
+        where: { id: point.id },
+        data: { validationCount: { increment: 1 } },
+        select: { validationCount: true },
+      }),
+    ]);
+    return { validationCount: updated.validationCount, userValidated: true };
   }
 
   async getUpdates(id: string) {

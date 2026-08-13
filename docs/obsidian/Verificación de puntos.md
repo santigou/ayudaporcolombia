@@ -29,10 +29,18 @@ La verificación ya **no** usa un campo `verificationCode`. Se basa en dos cosas
 
 Ver [[Flujo de moderación]] para el detalle de endpoints.
 
+## Validación comunitaria (tabla `Validation`)
+
+Además de la moderación, existe la **validación comunitaria**: cualquier usuario autenticado puede "verificar" un punto (`POST /api/points/:id/validate`), confirmando que es real. Esto NO aprueba el punto — solo suma evidencia.
+
+- Cada `Validation` tiene `pointId` + `userId` (un usuario solo valida una vez) + `status` (`confirmed`/`rejected`).
+- `Point.validationCount` (Int, desnormalizado) mantiene el total de confirmaciones, actualizado **atómicamente** con `increment` (estilo "likes" de IG) — evita contar filas en cada listado.
+- El listado del mapa (`GET /api/points`) **ordena** por `validationCount DESC` → los más verificados aparecen primero.
+- El `code` del punto (`Point.code`, 8 chars sin prefijo) es la llave pública para compartir: `/p/:code` abre la página del punto con el botón de validar.
+
 ## Límites del sistema actual
 
 - No hay expiración ni re-verificación periódica (existe `expiresAt` en el modelo, sin endpoint que lo use).
-- No hay validación comunitaria expuesta por endpoints (existe la tabla `Validation`, sin uso aún).
 - Un moderador **puede** verificar su propio punto: no hay restricción de auto-revisión. Ver [[Seguridad y consideraciones]].
 
 ## Relacionado

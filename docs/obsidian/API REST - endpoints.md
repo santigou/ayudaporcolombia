@@ -29,16 +29,19 @@ Validaciones (zod): `register` → email, password 8–100. `login` → email + 
 
 | Método | Path | Auth | Notas |
 |---|---|---|---|
-| GET | `/` | — | Lista pública **por zona visible**. Query: `type` (`need_help`/`offer_help`), `minLat`, `maxLat`, `minLng`, `maxLng` (bounding box del mapa). Cap de 300; `{points, truncated}`. |
+| GET | `/` | — | Lista pública **por zona visible**, ordenada por verificaciones (desc) + recientes. Query: `type` (`need_help`/`offer_help`), `minLat`, `maxLat`, `minLng`, `maxLng` (bounding box del mapa). Cap de 300; `{points, truncated}`. |
+| GET | `/code/:code` | — | Punto por su código público (case-insensitive, se normaliza a mayúsculas). Para la página compartible `/p/:code`. |
+| POST | `/:id/validate` | ✅ | Verificación comunitaria ("like"). Idempotente: no doble-conta. Incrementa `validationCount` atómicamente (ver [[Verificación de puntos]]). |
 | GET | `/:id` | — | Detalle si es visible públicamente; si no, 404. |
 | GET | `/:id/updates` | — | Timeline de novedades (`PointUpdate`) del punto (si es visible). |
 | POST | `/:id/updates` | ✅ | Publica una novedad. Body `{ message }` (1–500). Crea `PointUpdate`. |
-| POST | `/` | ✅ offer_help · – need_help | Crea punto. `multipart/form-data` con fotos (max 5). `offer_help` exige sesión; `need_help` puede ser anónimo. |
+| POST | `/` | ✅ offer_help · – need_help | Crea punto. `multipart/form-data` con fotos (max 5). `offer_help` exige sesión; `need_help` puede ser anónimo. Devuelve el `Point` creado (incluye `code`). |
 
-**GET `/`** devuelve `{ points: [...], truncated }`. Por punto: `{id,type,title,description,status,verificationStatus,createdAt,helpType,location:{lat,lng,address,city,neighborhood}|null,photos:string[]}`. Filtra por zona (`minLat/maxLat/minLng/maxLng`):
+**GET `/`** devuelve `{ points: [...], truncated }`. Por punto: `{id,code,type,title,description,status,verificationStatus,validationCount,createdAt,helpType,location:{lat,lng,address,city,neighborhood}|null,photos:string[]}`. Filtra por zona (`minLat/maxLat/minLng/maxLng`):
 - `offer_help` → `verificationStatus=approved`
 - `need_help` → `status ∈ {active,resolved}`
-- Si hay más de 300 visibles → `truncated: true` (la UI pide acercarse) y devuelve los 300 más recientes.
+- Orden: `validationCount DESC, createdAt DESC` (más verificados primero).
+- Si hay más de 300 visibles → `truncated: true` (la UI pide acercarse) y devuelve los 300 primeros.
 
 **GET `/:id`** devuelve además `locations: [{type,lat,lng,address,city,neighborhood}]` (todas las ubicaciones con su rol).
 

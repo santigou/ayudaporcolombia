@@ -36,6 +36,9 @@ interface PointDetailContentProps {
   onValidate?: () => void;
   // Puntos disponibles para pintar como contexto en el mini-mapa del detalle.
   nearbyPoints?: Point[];
+  // Aviso opcional (texto) que se muestra resaltado bajo el título, p. ej. para
+  // puntos pendientes abiertos por link compartible (PointByCode).
+  pendingNotice?: string;
 }
 
 type Tab = "info" | "novedades";
@@ -78,6 +81,7 @@ export function PointDetailContent({
   validating = false,
   onValidate,
   nearbyPoints = [],
+  pendingNotice,
 }: PointDetailContentProps) {
   const [tab, setTab] = useState<Tab>("info");
   const [activeLocIndex, setActiveLocIndex] = useState(0); // ubicación activa del mini-mapa
@@ -221,6 +225,9 @@ export function PointDetailContent({
                       {point.helpType}
                     </span>
                   ) : null}
+                  {pendingNotice && (
+                    <p className="mt-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">{pendingNotice}</p>
+                  )}
                   {address && <p className="mt-1 text-xs text-gray-400">{address}</p>}
                 </>
               )}

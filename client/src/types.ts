@@ -90,8 +90,9 @@ export interface Point {
   supplies?: { name: string; targetQuantity: number | null; receivedQuantity: number | null; unit: string | null }[];
   photos: string[];
   contacts?: ContactInfo[];
-  // Verificaciones comunitarias (solo en detalle).
-  validationCount?: number;
+  // Verificaciones comunitarias. Siempre viene del backend (listado y detalle).
+  validationCount: number;
+  // Si el usuario actual ya verificó este punto (solo en detalle).
   userValidated?: boolean;
 }
 

@@ -7,14 +7,18 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY, ROLES_KEY } from '../../application/decorators/roles.decorator';
+import { PrismaService } from '../../infrastructure/database/prisma.service';
 
 // AuthGuard: exige usuario autenticado salvo en rutas marcadas @Public() o que
 // no lleven @RequireAuth(). Replica requireAuth del Express.
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private prisma: PrismaService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -31,6 +35,18 @@ export class AuthGuard implements CanActivate {
     if (!request.user) {
       throw new UnauthorizedException('Debes iniciar sesión');
     }
+    // Verifica que el usuario del JWT aún existe en DB. Sin esto, un token válido
+    // criptográficamente pero con un userId borrado (p. ej. tras un re-seed)
+    // pasaría el guard y causaría FK violations downstream. También refresca el
+    // rol desde DB por si cambió desde que se emitió el token.
+    const dbUser = await this.prisma.user.findUnique({
+      where: { id: request.user.userId },
+      select: { id: true, role: true },
+    });
+    if (!dbUser) {
+      throw new UnauthorizedException('Debes iniciar sesión');
+    }
+    request.user.role = dbUser.role;
     return true;
   }
 }

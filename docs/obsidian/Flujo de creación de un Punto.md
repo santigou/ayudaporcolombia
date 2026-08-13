@@ -34,12 +34,12 @@ sequenceDiagram
         A-->>C: 401 "requiere iniciar sesión"
     else offer_help ok
         A->>DB: Point{status:pending, verificationStatus:pending} + Location + Contact + Attachments
-        A-->>C: 201 + Point
-        C-->>U: "enviado a revisión"
+        A-->>C: 201 + Point (incluye `code`)
+        C-->>U: "enviado a revisión" + muestra código y link copiable
     else need_help ok
         A->>DB: Point{status:active} + Location + Contact
-        A-->>C: 201 + Point
-        C-->>U: "visible, marcado no verificado"
+        A-->>C: 201 + Point (incluye `code`)
+        C-->>U: "visible, marcado no verificado" + muestra código y link copiable
     end
 ```
 
@@ -69,9 +69,12 @@ El cliente arma `FormData` porque hay archivos. Por eso las validaciones numéri
 
 ## Pantalla de éxito
 
-Depende del tipo:
-- **`offer_help`**: banner verde "enviado a revisión" (ya **no** muestra código de verificación; la verificación es por tabla `Verification`).
-- **`need_help`**: banner verde "ya está visible, marcado como no verificado".
+Depende del tipo, pero **ambas** muestran ahora el **código de verificación** (`Point.code`, 8 caracteres alfanuméricos sin prefijo) y un **link copiable** `/p/:code` para compartir:
+
+- **`offer_help`**: banner verde "enviado a revisión" + código + link.
+- **`need_help`**: banner verde "ya está visible, marcado como no verificado" + código + link.
+
+El código permite a otros usuarios abrir el punto y **verificarlo** (confirmación comunitaria). Los puntos con más verificaciones aparecen primero en el listado del mapa (ver [[Verificación de puntos]]).
 
 ## Relacionado
 

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { useLoginModal } from "../context/LoginModalContext";
 
 interface VerifyBarProps {
   code: string;
@@ -12,9 +14,21 @@ interface VerifyBarProps {
 // Barra de verificación/compartir: muestra el código del punto (copiable), un
 // botón para verificarlo (confirmación comunitaria) y otro para compartir el link.
 // La verificación NO aprueba el punto; solo suma evidencia para el moderador.
+// Si no hay sesión al pulsar "Verificar", abre el modal de login en vez de llamar
+// al endpoint (mejor UX que navegar a /login o fallar silenciosamente).
 export function VerifyBar({ code, validationCount, userValidated, validating, onValidate, className = "" }: VerifyBarProps) {
+  const { user } = useAuth();
+  const loginModal = useLoginModal();
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}/p/${code}`;
+
+  function handleValidate() {
+    if (!user) {
+      loginModal.open("Inicia sesión para verificar este punto y ayudar a confirmarlo.");
+      return;
+    }
+    onValidate();
+  }
 
   async function copyLink() {
     try {
@@ -45,7 +59,7 @@ export function VerifyBar({ code, validationCount, userValidated, validating, on
       </code>
       <button
         type="button"
-        onClick={onValidate}
+        onClick={handleValidate}
         disabled={userValidated || validating}
         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
           userValidated

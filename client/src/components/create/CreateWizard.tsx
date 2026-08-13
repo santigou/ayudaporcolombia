@@ -72,7 +72,8 @@ export function CreateWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ type: PointType } | null>(null);
+  const [created, setCreated] = useState<{ type: PointType; code: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const needsLogin = type === "offer_help" && !user;
 
@@ -209,8 +210,8 @@ export function CreateWizard() {
       form.set("contacts", JSON.stringify(validContacts));
       if (validSupplies.length > 0) form.set("supplies", JSON.stringify(validSupplies));
       for (const f of photos.slice(0, MAX_PHOTOS)) form.append("photos", f);
-      await api.post("/points", form);
-      setCreated({ type });
+      const created = await api.post<{ code: string }>("/points", form);
+      setCreated({ type, code: created.code });
       clearDraft(); // publicado con éxito: ya no hace falta el borrador
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos crear el punto.");
@@ -255,6 +256,16 @@ export function CreateWizard() {
   }
 
   if (created) {
+    const shareUrl = `${window.location.origin}/p/${created.code}`;
+    const copyLink = async () => {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        /* clipboard no disponible */
+      }
+    };
     return (
       <div className="mx-auto max-w-md p-6">
         <h1 className="text-lg font-bold text-gray-900">¡Listo!</h1>
@@ -265,6 +276,32 @@ export function CreateWizard() {
               : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
           </p>
         </div>
+
+        <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+          <p className="text-sm font-semibold text-gray-900">Código de verificación</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Compártelo para que otras personas puedan encontrar y verificar este punto.
+          </p>
+          <code className="mt-3 block rounded bg-white px-3 py-2.5 text-center font-mono text-xl font-bold tracking-[0.3em] text-gray-900 ring-1 ring-gray-200 select-all">
+            {created.code}
+          </code>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              readOnly
+              value={shareUrl}
+              className="min-w-0 flex-1 truncate rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600"
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              onClick={copyLink}
+              className="shrink-0 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              {copied ? "✓ Copiado" : "Copiar"}
+            </button>
+          </div>
+        </div>
+
         <button
           onClick={() => navigate("/")}
           className="mt-4 rounded-md bg-brand px-4 py-2 font-medium text-white"

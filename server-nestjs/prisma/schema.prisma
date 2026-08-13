@@ -96,6 +96,7 @@ model Point {
   helpTypeId         String?            @db.Uuid
   status             PointStatus        @default(pending)
   verificationStatus VerificationStatus @default(pending)
+  validationCount    Int                @default(0)
 
   createdById String? @db.Uuid
   createdAt  DateTime @default(now())
@@ -118,6 +119,7 @@ model Point {
   @@index([helpTypeId])
   @@index([createdAt])
   @@index([code])
+  @@index([validationCount])
 }
 
 model HelpType {

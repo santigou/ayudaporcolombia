@@ -16,8 +16,8 @@ Lo declarado como pendiente + lo que surge del análisis.
 ## Modelo de datos / limpieza
 
 - [x] ~~Decidir el destino del rediseño del schema~~ → **adoptado** (modelo rico migrado). Ver [[Estado del proyecto]].
-- [ ] **Eliminar `lib/code.ts`**: ya no se usa (no hay `verificationCode`). Ver [[Verificación de puntos]] y [[Libs del servidor]].
-- [ ] Exponer por endpoints capacidades del modelo aún sin uso: validaciones comunitarias (`Validation`), ubicaciones origen/destino. (~~Suministros `PointSupply`~~ ya expuestos en creación y detalle.)
+- [x] ~~Eliminar `lib/code.ts`~~ → el código de verificación **volvió** como `Point.code` (8 chars, sin prefijo, compartible vía `/p/:code`). Ver [[Verificación de puntos]].
+- [x] ~~Exponer validaciones comunitarias (`Validation`)~~ → endpoint `POST /api/points/:id/validate` + `validationCount` desnormalizado en `Point`.
 
 ## Funcionalidades
 

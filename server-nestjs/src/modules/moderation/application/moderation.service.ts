@@ -24,7 +24,6 @@ export class ModerationService {
         helpType: true,
         contacts: true,
         attachments: true,
-        validations: { where: { status: 'confirmed' }, select: { userId: true } },
       },
     });
     return points.map((p) => {
@@ -38,7 +37,7 @@ export class ModerationService {
         photos: p.attachments.filter((a) => a.type === 'image').map((a) => a.url),
         contacts: p.contacts.map((c) => ({ type: c.type, value: c.value })),
         createdBy: p.createdBy,
-        validationCount: p.validations.length,
+        validationCount: p.validationCount,
       };
     });
   }

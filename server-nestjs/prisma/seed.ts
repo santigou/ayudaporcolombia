@@ -54,7 +54,7 @@ async function main() {
 
   const p1 = await prisma.point.create({
     data: {
-      code: 'AYUDA-00001', type: 'need_help', title: 'Familia necesita alimentos',
+      code: 'K7XQ2A9B', type: 'need_help', title: 'Familia necesita alimentos',
       description: 'Familia de 4 personas necesita ayuda inmediata con alimentos y agua.',
       status: 'active', verificationStatus: 'approved', createdById: user1.id,
       locations: { create: { locationId: location1.id, locationType: 'location' } },
@@ -64,7 +64,7 @@ async function main() {
 
   const p2 = await prisma.point.create({
     data: {
-      code: 'AYUDA-00002', type: 'offer_help', title: 'Centro de acopio disponible',
+      code: 'PT8M2K5Q', type: 'offer_help', title: 'Centro de acopio disponible',
       description: 'Espacio disponible para recibir donaciones de alimentos.',
       helpTypeId: foodType.id, status: 'active', verificationStatus: 'approved', createdById: user2.id,
       locations: { create: { locationId: location2.id, locationType: 'location' } },
