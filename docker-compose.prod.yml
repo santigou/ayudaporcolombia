@@ -1,9 +1,9 @@
-# Despliegue de producción: app (NestJS sirve API + SPA) + Postgres + Cloudflare Tunnel.
+# Despliegue de producción: 2 contenedores (front + back) + Postgres + Cloudflare Tunnel.
 #
 # Uso:
-#   1) cp .env.prod.example .env.prod  y completa JWT_SECRET, TUNNEL_TOKEN, SEED_MODERATOR_*, POSTGRES_PASSWORD
+#   1) cp .env.prod.example .env.prod  y completa JWT_SECRET, TUNNEL_TOKEN, SEED_MODERATOR_*, POSTGRES_PASSWORD, S3_SECRET_KEY
 #   2) En Cloudflare Zero Trust crea un Tunnel (con nombre), copia su token en TUNNEL_TOKEN
-#      y añade un Public Hostname (ej. ayuda.tudominio.com) -> servicio "http://app:4000".
+#      y añade un Public Hostname (ej. ayuda.tudominio.com) -> servicio "http://front:80".
 #   3) docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 services:
@@ -23,10 +23,12 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  # Backend NestJS: API pura (/api). No sirve estáticos en producción.
+  back:
     build:
       context: .
       dockerfile: Dockerfile
+      target: back
     restart: unless-stopped
     depends_on:
       postgres:
@@ -46,14 +48,31 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-https://cdn.jffsolutions.com}
-    # Sin volumen de uploads: en producción las fotos viven en el contenedor
-    # SeaweedFS (j4f-storage), no en este contenedor.
+    # Puerto expuesto SOLO en localhost (127.0.0.1): útil para probar la API
+    # directamente desde el host en local y en el servidor. No queda accesible
+    # desde internet (el tunnel expone la app al público vía el `front`).
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  # Frontend nginx: sirve el SPA y hace proxy de /api y /uploads al back.
+  front:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: front
+    restart: unless-stopped
+    depends_on:
+      - back
+    # Puerto expuesto SOLO en localhost (127.0.0.1): el SPA queda en
+    # http://localhost:8080 para probar. En el servidor el público llega por tunnel.
+    ports:
+      - "127.0.0.1:8080:80"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     depends_on:
-      - app
+      - front
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?define TUNNEL_TOKEN en .env.prod}

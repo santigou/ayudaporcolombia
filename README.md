@@ -70,8 +70,9 @@ El servidor Express sirve el build de `client/dist` y expone la API bajo `/api`.
 La app se despliega con **3 contenedores** (`app` + `postgres` + `cloudflared`) sin
 abrir puertos en el router: Cloudflare Tunnel expone todo por HTTPS.
 
-> La app es un monolito: el backend NestJS sirve la API (`/api`) **y** el SPA compilado
-> (`client/dist`). Por eso hay un único contenedor de aplicación, no dos.
+> La app se despliega con **2 contenedores**: `front` (nginx sirve el SPA y hace
+> proxy de `/api` al `back`) + `back` (NestJS, API pura), más `postgres` y `cloudflared`.
+> Sin abrir puertos en el router: Cloudflare Tunnel expone todo por HTTPS.
 
 ### 1) Crear el tunnel en Cloudflare (una sola vez)
 
@@ -79,7 +80,7 @@ abrir puertos en el router: Cloudflare Tunnel expone todo por HTTPS.
 2. Nómbralo (ej. `ayuda`) y copia el **token** de instalación → va en `TUNNEL_TOKEN`.
 3. En la pestaña **Public Hostname** del tunnel añade:
    - Subdomain/Domain: `ayuda.tudominio.com` (tu dominio gestionado en Cloudflare).
-   - Service: `HTTP` · URL `app:4000` (el nombre del contenedor dentro de la red de compose).
+   - Service: `HTTP` · URL `front:80` (el contenedor nginx; él hace proxy de `/api` al `back`).
 
 ### 2) Configurar variables
 

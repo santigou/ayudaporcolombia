@@ -2,7 +2,7 @@
 # Entrypoint de producción del contenedor `app`.
 #   1) Aplica migraciones pendientes (idempotente).
 #   2) Crea el moderador inicial si no existe (no destructivo).
-#   3) Levanta el servidor NestJS (sirve API + SPA).
+#   3) Levanta el servidor NestJS (API pura en :4000; el SPA lo sirve el `front`).
 set -e
 
 echo "==> Aplicando migraciones (prisma migrate deploy)..."

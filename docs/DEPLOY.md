@@ -13,11 +13,12 @@ Tunnel, integrando las fotos con tu SeaweedFS (`j4f-storage`).
 
 ```
                      ┌─────────────────────────────────────┐
-   Browser ──HTTPS──▶│ Cloudflare (ayuda.jffsolutions.com) │──tunnel──▶ app:4000 (NestJS API + SPA)
-                     └─────────────────────────────────────┘                │
-                                                                            │ presign
-                     ┌─────────────────────────────────────┐                ▼
-   Browser ──HTTPS──▶│ Cloudflare (cdn.jffsolutions.com)   │──tunnel──▶ S3:8333 (SeaweedFS)
+   Browser ──HTTPS──▶│ Cloudflare (ayuda.jffsolutions.com) │──tunnel──▶ front:80 (nginx)
+                     └─────────────────────────────────────┘                                │
+                                                                               proxy /api, /uploads
+                                                                                               │
+                     ┌─────────────────────────────────────┐                               ▼
+   Browser ──HTTPS──▶│ Cloudflare (cdn.jffsolutions.com)   │                       back:4000 (NestJS API)
     (PUT foto)       └─────────────────────────────────────┘
     (GET <img>)            (bucket ayudaporcolombia, CORS configurado)
 ```
@@ -193,14 +194,14 @@ docker compose -f docker-compose.prod.yml down          # detener todo
 | 403 `SignatureDoesNotMatch` | `S3_SECRET_KEY` distinta entre app y `s3.json` | Igualar los valores |
 | 403 `InvalidAccessKeyId` | No reiniciaste `j4f-storage` tras editar `s3.json` | `docker restart j4f-storage` |
 | 403 `AccessDenied` | La identidad no tiene `Write:ayudaporcolombia` | Revisar `actions` del `s3.json` |
-| App no carga (502/timeouts) | El tunnel no apunta a `app:4000` | Revisar Public Hostname en Cloudflare |
+| App no carga (502/timeouts) | El tunnel no apunta a `front:80` | Revisar Public Hostname en Cloudflare (debe ser `front:80`, no `app:4000`) |
 ## 2) Crear el Tunnel de Cloudflare para la app (una sola vez)
 
 1. **Cloudflare Zero Trust → Networks → Tunnels → Create a tunnel**.
 2. Nómbralo (ej. `ayuda`) y copia el **token**.
 3. En **Public Hostname** añade:
    - Subdomain/Domain: `ayuda.jffsolutions.com` (tu dominio).
-   - Service: `HTTP` · URL `app:4000`.
+   - Service: `HTTP` · URL `front:80` (el contenedor nginx; él hace proxy de `/api` al `back`).
 
 > ℹ️ Es un tunnel **distinto** al de SeaweedFS (`j4f-storage-tunnel`), porque la
 > app levanta su propio contenedor `cloudflared` (ver `docker-compose.prod.yml`).
