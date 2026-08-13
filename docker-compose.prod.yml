@@ -28,6 +28,20 @@ services:
       timeout: 5s
       retries: 10
 
+  # Redis: bus de Pub/Sub para el adapter de WebSockets del chat en tiempo real.
+  # Permite escalar el backend a varios contenedores: un mensaje publicado en
+  # cualquier instancia se difunde a los sockets de TODAS las instancias. Sin
+  # puerto expuesto: solo es accesible dentro de la red de Docker (back → redis).
+  redis:
+    image: redis:7-alpine
+    container_name: apc-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # Backend NestJS: API pura (/api). No sirve estáticos en producción.
   back:
     build:
@@ -39,9 +53,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-ayuda}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ayudaporcolombia}?schema=public
+      REDIS_URL: redis://redis:6379
       PORT: "4000"
       JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en .env.prod}
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-}

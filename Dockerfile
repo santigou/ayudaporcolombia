@@ -45,12 +45,14 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Deps de producción + CLI de Prisma (necesaria para `migrate deploy` en el
-# arranque, ya que `prisma` es una devDependency).
+# arranque, ya que `prisma` es una devDependency) + PM2 (cluster mode para usar
+# todos los núcleos del servidor).
 COPY package.json package-lock.json ./
 COPY server-nestjs/package.json ./server-nestjs/
 COPY client/package.json ./client/
 RUN npm ci --omit=dev \
- && npm install --no-save prisma@^5.20.0
+ && npm install --no-save prisma@^5.20.0 \
+ && npm install --no-save pm2@^5.3.0
 
 # Artefactos de build del servidor + schema/migraciones.
 COPY --from=back-build /app/server-nestjs/dist ./server-nestjs/dist
@@ -59,8 +61,10 @@ COPY server-nestjs/prisma ./server-nestjs/prisma
 # Regenera el cliente Prisma con el motor de la plataforma runtime (linux/glibc Debian).
 RUN npx prisma generate --schema=server-nestjs/prisma/schema.prisma
 
-# Entrypoint: migraciones + seed-prod + start. Normaliza CRLF→LF (se edita en Win).
+# Entrypoint: migraciones + seed-prod + start (PM2 cluster). Normaliza CRLF→LF
+# (se edita en Win).
 COPY server-nestjs/entrypoint.sh ./server-nestjs/entrypoint.sh
+COPY server-nestjs/ecosystem.config.js ./server-nestjs/ecosystem.config.js
 RUN sed -i 's/\r$//' server-nestjs/entrypoint.sh && chmod +x server-nestjs/entrypoint.sh
 
 WORKDIR /app/server-nestjs

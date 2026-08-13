@@ -28,6 +28,9 @@ export function PointByCode() {
     statusRequesting,
     requestStatusChange,
     statusHistory,
+    kind,
+    setKind,
+    viewers,
   } = usePointByCode(code);
 
   if (loading) return <div className="p-6 text-center text-sm text-gray-500">Cargando…</div>;
@@ -81,6 +84,9 @@ export function PointByCode() {
           error={error}
           message={message}
           onMessageChange={setMessage}
+          kind={kind}
+          onKindChange={setKind}
+          viewers={viewers}
           submitting={submitting}
           onSubmitNovedad={submitNovedad}
         />

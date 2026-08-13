@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       "/api": { target: "http://localhost:4000", changeOrigin: true },
       "/uploads": { target: "http://localhost:4000", changeOrigin: true },
+      // WebSockets del chat en tiempo real (Novedades). ws:true para el upgrade.
+      "/socket.io": { target: "http://localhost:4000", changeOrigin: true, ws: true },
     },
   },
 });

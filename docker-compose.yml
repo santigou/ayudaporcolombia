@@ -11,5 +11,14 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Redis: bus de Pub/Sub para el adapter de WebSockets del chat en tiempo real.
+  # Permite que el broadcast de novedades funcione al escalar el backend a varios
+  # procesos/contenedores. En dev se expone en :6379 para poder inspeccionarlo.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
 volumes:
   pgdata:

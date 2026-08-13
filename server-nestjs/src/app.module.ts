@@ -6,6 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { PointsModule } from './modules/points/points.module';
 import { ModerationModule } from './modules/moderation/moderation.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AuthMiddleware } from './shared/infrastructure/middleware/auth.middleware';
 import { AuthGuard, RolesGuard } from './shared/infrastructure/guards/auth.guard';
 
@@ -17,6 +18,7 @@ import { AuthGuard, RolesGuard } from './shared/infrastructure/guards/auth.guard
     PointsModule,
     ModerationModule,
     UploadsModule,
+    RealtimeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

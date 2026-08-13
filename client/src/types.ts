@@ -147,10 +147,18 @@ export interface ModeratorRequestSummary {
 export interface PointUpdateItem {
   id: string;
   message: string;
+  kind: UpdateKind;
   createdAt: string;
   // Email del autor (null no debería darse: publicar exige sesión).
   createdByEmail: string | null;
 }
+
+// Categoría (kind) de una novedad del chat en tiempo real. Coincide con el enum
+// UpdateKind del backend (server-nestjs/prisma/schema.prisma). Por defecto
+// "message" (comentario normal). Los demás tipos facilitan la coordinación:
+// helping = "estoy ayudando", done = "terminamos", important, urgent.
+export const UPDATE_KINDS = ["message", "helping", "done", "important", "urgent"] as const;
+export type UpdateKind = (typeof UPDATE_KINDS)[number];
 
 export interface CurrentUser {
   id: string;

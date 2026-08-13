@@ -134,6 +134,9 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
           error={detail.error}
           message={detail.message}
           onMessageChange={detail.setMessage}
+          kind={detail.kind}
+          onKindChange={detail.setKind}
+          viewers={detail.viewers}
           submitting={detail.submitting}
           onSubmitNovedad={detail.submitNovedad}
           hideTitle

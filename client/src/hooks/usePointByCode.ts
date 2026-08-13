@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { ContactInfo, Point, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem } from "../types";
+import { getSocket } from "../api/socket";
+import type { ContactInfo, Point, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem, UpdateKind } from "../types";
 
 type PointByCodeData = Point & {
   validationCount: number;
@@ -21,6 +22,11 @@ interface UsePointByCodeResult {
   moderatorVerify: () => Promise<void>;
   message: string;
   setMessage: (v: string) => void;
+  // Tipo/categoría de la novedad que se va a publicar (chat en tiempo real).
+  kind: UpdateKind;
+  setKind: (v: UpdateKind) => void;
+  // Personas viendo este punto en tiempo real (presencia vía WebSocket).
+  viewers: number;
   submitting: boolean;
   submitNovedad: () => Promise<void>;
   validate: () => Promise<void>;
@@ -51,6 +57,8 @@ export function usePointByCode(code: string): UsePointByCodeResult {
   const [statusRequesting, setStatusRequesting] = useState(false);
   const [statusHistory, setStatusHistory] = useState<PointStatusHistoryItem[]>([]);
   const [message, setMessage] = useState("");
+  const [kind, setKind] = useState<UpdateKind>("message");
+  const [viewers, setViewers] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   // Carga inicial: punto (por código) + timeline de novedades, en paralelo.
@@ -100,6 +108,39 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     };
   }, [point]);
 
+  // Suscripción en tiempo real a la sala del punto (cuando ya cargó por código):
+  // recibe novedades nuevas y el conteo de espectadores. Al (re)conectar hace un
+  // re-fetch completo para no perder mensajes del intervalo de desconexión.
+  useEffect(() => {
+    const pointId = point?.id;
+    if (!pointId) return;
+    const sock = getSocket();
+    const joinAndSync = () => {
+      sock.emit("point:join", { pointId });
+      api
+        .get<PointUpdateItem[]>(`/points/${pointId}/updates`)
+        .then(setUpdates)
+        .catch(() => {});
+    };
+    const onNew = (u: PointUpdateItem) => {
+      setUpdates((prev) => (prev.some((x) => x.id === u.id) ? prev : [u, ...prev]));
+    };
+    const onPresence = (p: { pointId: string; viewers: number }) => {
+      if (p.pointId === pointId) setViewers(p.viewers);
+    };
+    sock.on("connect", joinAndSync);
+    sock.on("update:new", onNew);
+    sock.on("point:presence", onPresence);
+    if (sock.connected) joinAndSync();
+    return () => {
+      sock.off("connect", joinAndSync);
+      sock.off("update:new", onNew);
+      sock.off("point:presence", onPresence);
+      sock.emit("point:leave", { pointId });
+      setViewers(0);
+    };
+  }, [point?.id]);
+
   async function validate() {
     if (!point || point.userValidated || validating) return;
     setValidating(true);
@@ -132,9 +173,11 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await api.post<PointUpdateItem>(`/points/${point.id}/updates`, { message });
-      setUpdates((prev) => [created, ...prev]);
+      const created = await api.post<PointUpdateItem>(`/points/${point.id}/updates`, { message, kind });
+      // Dedup por id: el backend también difunde la novedad por WebSocket.
+      setUpdates((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]));
       setMessage("");
+      setKind("message");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos publicar la novedad.");
     } finally {
@@ -187,6 +230,9 @@ export function usePointByCode(code: string): UsePointByCodeResult {
     moderatorVerify,
     message,
     setMessage,
+    kind,
+    setKind,
+    viewers,
     submitting,
     submitNovedad,
     validate,

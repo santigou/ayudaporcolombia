@@ -63,6 +63,9 @@ export function PointDetail({ point, nearbyPoints, onClose, onPointUpdated }: Po
           error={detail.error}
           message={detail.message}
           onMessageChange={detail.setMessage}
+          kind={detail.kind}
+          onKindChange={detail.setKind}
+          viewers={detail.viewers}
           submitting={detail.submitting}
           onSubmitNovedad={detail.submitNovedad}
         />

@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as cookieParser from 'cookie-parser';
@@ -13,6 +14,7 @@ import type { Request, Response, NextFunction } from 'express';
 import * as dotenv from 'dotenv';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 import { AppModule } from './app.module';
+import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -24,6 +26,19 @@ async function bootstrap() {
     origin: clientOrigin,
     credentials: true,
   });
+
+  // Adaptador de WebSockets (Socket.IO) para el chat en tiempo real de la
+  // pestaña "Novedades". Si hay REDIS_URL, usa el adapter de Redis (Pub/Sub) para
+  // que el broadcast funcione con varios contenedores backend (escalado
+  // horizontal). Si no, cae al IoAdapter normal (suficiente para 1 solo servidor).
+  const redisUrl = configService.get<string>('REDIS_URL');
+  if (redisUrl) {
+    const redisIoAdapter = new RedisIoAdapter(app);
+    await redisIoAdapter.connectToRedis(redisUrl);
+    app.useWebSocketAdapter(redisIoAdapter);
+  } else {
+    app.useWebSocketAdapter(new IoAdapter(app));
+  }
 
   // Cookie parser: necesario para leer la cookie `token` (JWT) en el middleware.
   app.use(cookieParser());
@@ -68,6 +83,14 @@ async function bootstrap() {
   console.log(`🚀 Server is running on: http://localhost:${port}`);
   console.log(`📝 Environment: ${configService.get('NODE_ENV') || 'development'}`);
   console.log(`🔗 Client origin: ${clientOrigin}`);
+
+  // En PM2 cluster mode: avisa al proceso master que este worker ya acepta
+  // tráfico. PM2 (con wait_ready:true en ecosystem.config.js) espera esta señal
+  // antes de enrutarle peticiones. Fuera de PM2 (dev con nest start) esto es un
+  // no-op porque process.send es undefined.
+  if (process.send) {
+    process.send('ready');
+  }
 }
 
 bootstrap();

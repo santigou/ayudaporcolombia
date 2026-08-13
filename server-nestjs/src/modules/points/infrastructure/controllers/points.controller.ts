@@ -9,7 +9,10 @@ import { AuthGuard } from '../../../../shared/infrastructure/guards/auth.guard';
 import { RequireAuth } from '../../../../shared/application/decorators/roles.decorator';
 import { AuthenticatedRequest } from '../../../../shared/infrastructure/middleware/auth.middleware';
 
-const updateSchema = z.object({ message: z.string().min(1).max(500) });
+const updateSchema = z.object({
+  message: z.string().min(1).max(500),
+  kind: z.enum(['message', 'helping', 'done', 'important', 'urgent']).optional(),
+});
 
 // Estados objetivo válidos para el cambio de estado del ciclo de vida de un Punto.
 const statusChangeSchema = z.object({
@@ -114,10 +117,11 @@ export class PointsController {
   @RequireAuth()
   async postUpdate(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateSchema)) body: { message: string },
+    @Body(new ZodValidationPipe(updateSchema)) body: { message: string; kind?: string },
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.pointService.createUpdate(id, req.user!.userId, body.message);
+    const kind = (body.kind ?? 'message') as 'message' | 'helping' | 'done' | 'important' | 'urgent';
+    return this.pointService.createUpdate(id, req.user!.userId, body.message, kind);
   }
 
   @Get(':id')

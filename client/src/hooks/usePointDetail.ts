@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { ContactInfo, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem } from "../types";
+import { getSocket } from "../api/socket";
+import type { ContactInfo, PointLocationEntry, PointStatusHistoryItem, PointUpdateItem, UpdateKind } from "../types";
 
 interface UsePointDetailResult {
   updates: PointUpdateItem[];
@@ -18,6 +19,11 @@ interface UsePointDetailResult {
   error: string | null;
   message: string;
   setMessage: (v: string) => void;
+  // Tipo/categoría de la novedad que se va a publicar (chat en tiempo real).
+  kind: UpdateKind;
+  setKind: (v: UpdateKind) => void;
+  // Personas viendo este punto en tiempo real (presencia vía WebSocket).
+  viewers: number;
   submitting: boolean;
   submitNovedad: () => Promise<void>;
   validate: () => Promise<void>;
@@ -33,7 +39,9 @@ interface UsePointDetailResult {
 
 // Carga el detalle "pesado" de un punto (novedades, contactos, ubicaciones
 // múltiples) y maneja la publicación de una novedad. Lo usan tanto el panel
-// lateral (desktop) como el bottom-sheet (móvil) para no duplicar lógica.
+// lateral (desktop) como el bottom-sheet (móvil) para no duplicar lógica. Además
+// se conecta por WebSocket a la sala del punto para recibir novedades nuevas en
+// tiempo real y reflejar la presencia de otros espectadores.
 export function usePointDetail(pointId: string): UsePointDetailResult {
   const [updates, setUpdates] = useState<PointUpdateItem[]>([]);
   const [contacts, setContacts] = useState<ContactInfo[]>([]);
@@ -50,6 +58,8 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [kind, setKind] = useState<UpdateKind>("message");
+  const [viewers, setViewers] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -85,6 +95,38 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
   }, [pointId]);
 
   // Recarga solo el historial de estado (tras un cambio aplicado).
+  // Suscripción en tiempo real a la sala del punto: recibe novedades nuevas y el
+  // conteo de espectadores. Al (re)conectar hace un re-fetch completo del timeline
+  // para no perder mensajes del intervalo de desconexión.
+  useEffect(() => {
+    const sock = getSocket();
+    const joinAndSync = () => {
+      sock.emit("point:join", { pointId });
+      api
+        .get<PointUpdateItem[]>(`/points/${pointId}/updates`)
+        .then(setUpdates)
+        .catch(() => {});
+    };
+    const onNew = (u: PointUpdateItem) => {
+      setUpdates((prev) => (prev.some((x) => x.id === u.id) ? prev : [u, ...prev]));
+    };
+    const onPresence = (p: { pointId: string; viewers: number }) => {
+      if (p.pointId === pointId) setViewers(p.viewers);
+    };
+    sock.on("connect", joinAndSync);
+    sock.on("update:new", onNew);
+    sock.on("point:presence", onPresence);
+    // Si ya está conectado (p. ej. al cambiar de punto), unimos de inmediato.
+    if (sock.connected) joinAndSync();
+    return () => {
+      sock.off("connect", joinAndSync);
+      sock.off("update:new", onNew);
+      sock.off("point:presence", onPresence);
+      sock.emit("point:leave", { pointId });
+      setViewers(0);
+    };
+  }, [pointId]);
+
   async function reloadStatusHistory() {
     try {
       const data = await api.get<PointStatusHistoryItem[]>(`/points/${pointId}/status-history`);
@@ -99,9 +141,12 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await api.post<PointUpdateItem>(`/points/${pointId}/updates`, { message });
-      setUpdates((prev) => [created, ...prev]);
+      const created = await api.post<PointUpdateItem>(`/points/${pointId}/updates`, { message, kind });
+      // Dedup por id: el backend también difunde la novedad por WebSocket, y
+      // podría llegar antes/después de esta respuesta. Evita duplicados.
+      setUpdates((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]));
       setMessage("");
+      setKind("message");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos publicar la novedad.");
     } finally {
@@ -197,6 +242,9 @@ export function usePointDetail(pointId: string): UsePointDetailResult {
     error,
     message,
     setMessage,
+    kind,
+    setKind,
+    viewers,
     submitting,
     submitNovedad,
     validate,

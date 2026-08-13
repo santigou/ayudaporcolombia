@@ -10,6 +10,7 @@ import {
   type PointStatus,
   type PointStatusHistoryItem,
   type PointUpdateItem,
+  type UpdateKind,
 } from "../types";
 import { PointNovedades } from "./PointNovedades";
 import { ImageGallery } from "./ImageGallery";
@@ -28,6 +29,10 @@ interface PointDetailContentProps {
   onMessageChange: (v: string) => void;
   submitting: boolean;
   onSubmitNovedad: () => void;
+  // Tipo/categoría de la novedad en curso + presencia (chat en tiempo real).
+  kind?: UpdateKind;
+  onKindChange?: (v: UpdateKind) => void;
+  viewers?: number;
   // Si true, omite el bloque de título+badge+dirección (porque el padre ya lo
   // muestra, p. ej. en el header fijo del bottom-sheet móvil).
   hideTitle?: boolean;
@@ -91,6 +96,9 @@ export function PointDetailContent({
   onMessageChange,
   submitting,
   onSubmitNovedad,
+  kind,
+  onKindChange,
+  viewers = 0,
   hideTitle = false,
   createdByEmail = null,
   createdById = null,
@@ -329,8 +337,11 @@ export function PointDetailContent({
               error={error}
               message={message}
               onMessageChange={onMessageChange}
+              kind={kind ?? "message"}
+              onKindChange={onKindChange ?? (() => {})}
               submitting={submitting}
               onSubmitNovedad={onSubmitNovedad}
+              viewers={viewers}
             />
           </div>
         ) : (

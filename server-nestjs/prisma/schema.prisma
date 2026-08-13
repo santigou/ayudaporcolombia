@@ -57,6 +57,18 @@ enum ValidationStatus {
   rejected
 }
 
+// Categoría (kind) de una novedad del timeline. Facilita la coordinación en el
+// chat en tiempo real: distingue un comentario normal de "estoy ayudando",
+// "terminamos", información importante o algo urgente. El default `message`
+// mantiene las novedades existentes como comentarios normales.
+enum UpdateKind {
+  message
+  helping
+  done
+  important
+  urgent
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
@@ -224,6 +236,7 @@ model PointUpdate {
   pointId     String   @db.Uuid
   createdById String   @db.Uuid
   message     String
+  kind        UpdateKind @default(message)
   createdAt DateTime @default(now())
 
   point     Point @relation(fields: [pointId], references: [id], onDelete: Cascade)

@@ -34,7 +34,7 @@ Validaciones (zod): `register` → email, password 8–100. `login` → email + 
 | POST | `/:id/validate` | ✅ | Verificación comunitaria ("like"). Idempotente: no doble-conta. Incrementa `validationCount` atómicamente (ver [[Verificación de puntos]]). |
 | GET | `/:id` | — | Detalle si es visible públicamente; si no, 404. Incluye `createdById`. |
 | GET | `/:id/updates` | — | Timeline de novedades (`PointUpdate`) del punto (si es visible). |
-| POST | `/:id/updates` | ✅ | Publica una novedad. Body `{ message }` (1–500). Crea `PointUpdate`. |
+| POST | `/:id/updates` | ✅ | Publica una novedad. Body `{ message, kind? }` (`kind ∈ {message,helping,done,important,urgent}`, por defecto `message`). Crea `PointUpdate` y la **difunde en tiempo real** por WebSocket. |
 | POST | `/:id/status` | ✅ | Cambio de estado del ciclo de vida. Body `{ status, reason? }` (`status ∈ {resolved,cancelled,active}`). Autoriza creador **o** moderador (lo resuelve el servicio). Valida la transición. |
 | POST | `/:id/status-requests` | ✅ | Solicitud de cambio de estado (usuario no creador/moderador). Body `{ status, reason? }`. Crea `PointStatusRequest(pending)`. Una pendiente por (usuario, punto). |
 | GET | `/:id/status-history` | — | Historial de cambios de estado (ciclo de vida) aplicados al punto. Fuente del tab "Estado". |
@@ -65,6 +65,25 @@ Todas requieren `requireAuth` + `requireModerator`.
 | GET | `/status-requests` | Cola de solicitudes de cambio de estado pendientes |
 | POST | `/status-requests/:id/approve` | Aplica el cambio de estado (re-valida la transición) + marca aprobada (tx) |
 | POST | `/status-requests/:id/reject` | Rechaza la solicitud |
+
+## Tiempo real (WebSocket / Socket.IO)
+
+La pestaña **Novedades** funciona como un chat en vivo. El gateway (`PointsGateway`, namespace `/`) escucha en el mismo servidor HTTP que la API.
+
+- **Autenticación:** opcional, vía la **cookie `token`** (JWT) del handshake —igual que `AuthMiddleware`. La *lectura* es pública (paridad con `GET /:id/updates`); publicar exige sesión (lo valida el endpoint REST).
+- **Salas:** una sala `point:<id>` por cada punto abierto.
+
+Eventos (cliente ↔ servidor):
+
+| Dirección | Evento | Payload | Notas |
+|---|---|---|---|
+| C → S | `point:join` | `{ pointId }` | Une el socket a la sala del punto. |
+| C → S | `point:leave` | `{ pointId }` | Saca el socket de la sala (al cerrar el detalle). |
+| S → C | `update:new` | `PointUpdateItem` | Se emite a la sala cuando alguien publica una novedad (lo dispara `POST /:id/updates`). |
+| S → C | `point:presence` | `{ pointId, viewers }` | Conteo de espectadores del punto (al unirse/salirse). |
+
+> [!info] Fuente de verdad = REST
+> El WebSocket es solo **notificación** en vivo. La fuente de verdad sigue siendo `POST/GET /:id/updates`; el cliente, al (re)conectar, re-pide el timeline completo para no perder mensajes.
 
 ## Estáticos (sin `/api`)
 

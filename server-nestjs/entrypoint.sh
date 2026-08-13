@@ -11,5 +11,5 @@ npx prisma migrate deploy
 echo "==> Asegurando moderador inicial (idempotente)..."
 node dist/scripts/seed-prod.js || echo "   seed-prod: omitido o falló, continuando."
 
-echo "==> Iniciando servidor..."
-exec node dist/main
+echo "==> Iniciando servidor (PM2 cluster, WEB_CONCURRENCY=${WEB_CONCURRENCY:-max})..."
+exec npx pm2-runtime start ecosystem.config.js --env production

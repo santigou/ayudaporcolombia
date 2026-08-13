@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { UpdateKind } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
 import { generateUniqueCode } from '../../../shared/infrastructure/utils/code.util';
+import { PointsGateway } from '../../realtime/points.gateway';
 
 function isPubliclyVisible(p: { type: string; status: string; verificationStatus: string }): boolean {
   // Estados "muertos": nunca se muestran en el listado del mapa, sin importar el
@@ -68,7 +70,10 @@ type SupplyInput = { name: string; targetQuantity?: number; unit?: string };
 
 @Injectable()
 export class PointService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gateway: PointsGateway,
+  ) {}
 
   async getPublicPoints(opts: { type?: string; minLat?: number; maxLat?: number; minLng?: number; maxLng?: number }) {
     const FETCH_CAP = 600;
@@ -115,7 +120,7 @@ export class PointService {
       contacts: point.contacts.map((c) => ({ type: c.type, value: c.value })),
       supplies: point.supplies.map((s) => ({ name: s.supply.name, targetQuantity: s.targetQuantity !== null ? Number(s.targetQuantity) : null, receivedQuantity: s.receivedQuantity !== null ? Number(s.receivedQuantity) : null, unit: s.unit })),
       photos: point.attachments.filter((a) => a.type === 'image').map((a) => a.url),
-      updates: point.updates.map((u) => ({ id: u.id, message: u.message, createdAt: u.createdAt })),
+      updates: point.updates.map((u) => ({ id: u.id, message: u.message, kind: u.kind, createdAt: u.createdAt })),
       createdById: point.createdBy?.id ?? null,
       createdByEmail: point.createdBy?.email ?? null,
       validationCount: point.validationCount,
@@ -187,7 +192,7 @@ export class PointService {
       orderBy: { createdAt: 'desc' },
       include: { createdBy: { select: { email: true } } },
     });
-    return updates.map((u) => ({ id: u.id, message: u.message, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null }));
+    return updates.map((u) => ({ id: u.id, message: u.message, kind: u.kind, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null }));
   }
 
   // Historial de cambios de estado (ciclo de vida) del punto, del más reciente al
@@ -211,11 +216,15 @@ export class PointService {
     }));
   }
 
-  async createUpdate(id: string, userId: string, message: string) {
+  async createUpdate(id: string, userId: string, message: string, kind: UpdateKind = 'message') {
     const point = await this.prisma.point.findUnique({ where: { id }, select: { id: true } });
     if (!point) throw new NotFoundException('Punto no encontrado');
-    const u = await this.prisma.pointUpdate.create({ data: { pointId: point.id, createdById: userId, message }, include: { createdBy: { select: { email: true } } } });
-    return { id: u.id, message: u.message, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null };
+    const u = await this.prisma.pointUpdate.create({ data: { pointId: point.id, createdById: userId, message, kind }, include: { createdBy: { select: { email: true } } } });
+    const payload = { id: u.id, message: u.message, kind: u.kind, createdAt: u.createdAt, createdByEmail: u.createdBy?.email ?? null };
+    // Difunde la novedad nueva a quien esté viendo este punto en tiempo real.
+    // El endpoint REST sigue siendo la fuente de verdad; el WS es solo notificación.
+    this.gateway.broadcastUpdate(point.id, payload);
+    return payload;
   }
 
   // --- Cambio de estado (ciclo de vida) por creador o moderador ---
