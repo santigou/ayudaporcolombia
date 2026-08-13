@@ -1,0 +1,56 @@
+# Despliegue de producción: app (NestJS sirve API + SPA) + Postgres + Cloudflare Tunnel.
+#
+# Uso:
+#   1) cp .env.prod.example .env.prod  y completa JWT_SECRET, TUNNEL_TOKEN, SEED_MODERATOR_*, POSTGRES_PASSWORD
+#   2) En Cloudflare Zero Trust crea un Tunnel (con nombre), copia su token en TUNNEL_TOKEN
+#      y añade un Public Hostname (ej. ayuda.tudominio.com) -> servicio "http://app:4000".
+#   3) docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ayuda}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-ayudaporcolombia}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sin puerto expuesto al host: solo accesible dentro de la red de compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ayuda} -d ${POSTGRES_DB:-ayudaporcolombia}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ayuda}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ayudaporcolombia}?schema=public
+      PORT: "4000"
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en .env.prod}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-}
+      SEED_MODERATOR_EMAIL: ${SEED_MODERATOR_EMAIL:-}
+      SEED_MODERATOR_PASSWORD: ${SEED_MODERATOR_PASSWORD:-}
+    volumes:
+      - uploads:/app/server-nestjs/uploads
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?define TUNNEL_TOKEN en .env.prod}
+
+volumes:
+  pgdata:
+  uploads:

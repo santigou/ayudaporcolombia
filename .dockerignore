@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/.cache
+**/coverage
+.git
+.env
+.env.*
+!.env.prod.example
+*.log
+.DS_Store
+docs
+server-nestjs/uploads/*
+!server-nestjs/uploads/.gitkeep
