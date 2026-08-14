@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { MapView } from "../components/MapView";
+import { PanicButton } from "../components/PanicButton";
 import { FiltersBar } from "../components/FiltersBar";
 import { PointList } from "../components/PointList";
 import { PointDetail } from "../components/PointDetail";
@@ -47,6 +48,9 @@ export function Home() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Point | null>(null);
   const [bbox, setBbox] = useState<BBox | null>(null);
+  // Contador que se incrementa al crear un punto desde el botón de pánico para
+  // forzar el refetch de la zona visible y mostrarlo de inmediato en el mapa.
+  const [refreshTick, setRefreshTick] = useState(0);
   // Desktop: panel lateral derecho con detalle. Móvil: overlay (bottom-sheet).
   const isDesktop = useIsDesktop();
 
@@ -85,7 +89,7 @@ export function Home() {
     return () => {
       cancelled = true;
     };
-  }, [bbox, type]);
+  }, [bbox, type, refreshTick]);
 
   // El filtro por tipo de ayuda es en el cliente (el catálogo es libre). También
   // ocultamos los resueltos salvo que el toggle esté activo y aplicamos el
@@ -192,6 +196,15 @@ export function Home() {
         >
           + Crear
         </Link>
+        {/* Botón de pánico (SOS): crea un punto de "necesito ayuda" anónimo en la
+            ubicación actual. Posicionado a la izquierda, espejo del botón Crear. */}
+        <div className="absolute bottom-4 left-4 z-10">
+          <PanicButton
+            fallbackLocation={bbox ? { lat: (bbox.minLat + bbox.maxLat) / 2, lng: (bbox.minLng + bbox.maxLng) / 2 } : { lat: 6.2518, lng: -75.5636 }}
+            onCreated={() => setRefreshTick((t) => t + 1)}
+            onDelete={() => setRefreshTick((t) => t + 1)}
+          />
+        </div>
       </div>
       <aside className="flex-1 md:flex-none md:w-96 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col overflow-hidden bg-white">
         {sidePanel}

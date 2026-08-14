@@ -1,11 +1,15 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { useAuth } from "./AuthContext";
-import { LoginModal } from "../components/LoginModal";
+import { AuthModal, type AuthMode } from "../components/AuthModal";
 
 interface LoginModalContextValue {
-  // Abre el modal de login. `reason` es un texto opcional que explica por qué
-  // se pide iniciar sesión (p. ej. "para verificar este punto").
+  // Abre el modal en modo LOGIN. `reason` es un texto opcional que explica por
+  // qué se pide iniciar sesión (p. ej. "para verificar este punto"). Se mantiene
+  // como string por compatibilidad con los llamadores existentes (VerifyBar,
+  // StatusControls).
   open: (reason?: string) => void;
+  // Abre el modal directamente en modo REGISTRO (p. ej. CTA del navbar).
+  openRegister: (reason?: string) => void;
   close: () => void;
 }
 
@@ -15,12 +19,19 @@ const LoginModalContext = createContext<LoginModalContextValue | undefined>(unde
 // useLoginModal().open() para pedir login sin navegar a /login (mejor UX: el
 // usuario no pierde su contexto actual, p. ej. al verificar un punto).
 export function LoginModalProvider({ children }: { children: ReactNode }) {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState<string | undefined>(undefined);
+  const [mode, setMode] = useState<AuthMode>("login");
 
   function open(reason?: string) {
     setReason(reason);
+    setMode("login");
+    setIsOpen(true);
+  }
+  function openRegister(reason?: string) {
+    setReason(reason);
+    setMode("register");
     setIsOpen(true);
   }
   function close() {
@@ -29,9 +40,18 @@ export function LoginModalProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <LoginModalContext.Provider value={{ open, close }}>
+    <LoginModalContext.Provider value={{ open, openRegister, close }}>
       {children}
-      {isOpen && <LoginModal reason={reason} onClose={close} onLogin={login} />}
+      {isOpen && (
+        <AuthModal
+          reason={reason}
+          mode={mode}
+          onModeChange={setMode}
+          onClose={close}
+          onLogin={login}
+          onRegister={register}
+        />
+      )}
     </LoginModalContext.Provider>
   );
 }

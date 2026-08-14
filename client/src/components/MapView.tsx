@@ -199,7 +199,12 @@ export function MapView({
       style: STYLE_URL,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
+      // Desactiva la atribución por defecto (texto completo siempre visible en
+      // pantallas grandes) y añadimos una COMPACTA (solo el botón ⓘ) que arranca
+      // cerrada y se expande al pasar el ratón / pulsar.
+      attributionControl: false,
     });
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     // Botón 🎯 para recentrar en la ubicación del usuario. showUserLocation (default
     // true) dibuja el punto azul; trigger() lo activa automáticamente al cargar.

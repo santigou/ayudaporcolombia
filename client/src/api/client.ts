@@ -44,6 +44,11 @@ export const api = {
       method: "POST",
       body: body instanceof FormData ? body : JSON.stringify(body ?? {}),
     }),
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: "DELETE",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   // Pide una URL pre-firmada para subir una foto directo al almacenamiento.
   presignUpload: (filename: string, mime: string) =>
     request<PresignResult>("/uploads/presign", {

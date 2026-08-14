@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UpdateKind } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
 import { generateUniqueCode } from '../../../shared/infrastructure/utils/code.util';
+import { signDeleteToken, verifyDeleteToken } from '../../../shared/infrastructure/utils/deleteToken.util';
 import { PointsGateway } from '../../realtime/points.gateway';
 
 function isPubliclyVisible(p: { type: string; status: string; verificationStatus: string }): boolean {
@@ -73,6 +75,7 @@ export class PointService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateway: PointsGateway,
+    private readonly config: ConfigService,
   ) {}
 
   async getPublicPoints(opts: { type?: string; minLat?: number; maxLat?: number; minLng?: number; maxLng?: number }) {
@@ -300,7 +303,10 @@ export class PointService {
     if (!data.helpTypeName) throw new BadRequestException('Indica el tipo de ayuda');
     if (data.type === 'offer_help' && !userId) throw new BadRequestException('Los puntos de ayuda requieren iniciar sesión');
     const contacts = this.buildContacts(data.contacts);
-    if (contacts.length === 0) throw new BadRequestException('Indica al menos un contacto válido');
+    // Solo offer_help exige contacto (para que puedan localizarlo tras la
+    // moderación). need_help puede ser anónimo y sin contacto: lo usa el botón de
+    // emergencia SOS, donde pedir contacto frenaría una petición urgente.
+    if (data.type === 'offer_help' && contacts.length === 0) throw new BadRequestException('Indica al menos un contacto válido');
     const locations = this.buildLocations(data);
     if (locations.length === 0) throw new BadRequestException('Marca al menos una ubicación en el mapa');
     const supplies = this.buildSupplies(data.supplies);
@@ -312,7 +318,7 @@ export class PointService {
     }));
 
     const isOffer = data.type === 'offer_help';
-    return this.prisma.point.create({
+    const point = await this.prisma.point.create({
       data: {
         code: await generateUniqueCode(this.prisma),
         type: data.type, title: data.title, description: data.description, helpTypeId: helpType.id,
@@ -324,6 +330,30 @@ export class PointService {
         ...(data.photoUrls.length ? { attachments: { create: data.photoUrls.map((url) => ({ url, type: 'image' as const })) } } : {}),
       },
     });
+    // Devolvemos un token de borrado stateless: permite al creador borrar el
+    // punto inmediatamente (p. ej. un SOS creado por error) incluso si es anónimo
+    // (sin sesión). El token NO se persiste: se deriva del id + secreto.
+    return { ...point, deleteToken: signDeleteToken(point.id, this.config.get<string>('JWT_SECRET')) };
+  }
+
+  // Borrado rápido de un punto (p. ej. un SOS creado por error). Autorización:
+  //  - Si hay sesión y el punto es del usuario → OK (creador autenticado).
+  //  - Si NO hay sesión (anónimo) → exige un deleteToken válido (devuelto al crear).
+  //  - Un moderador puede borrar cualquiera (gestión de contenido).
+  // Borra en cascada (locations, contacts, supplies, attachments, updates...).
+  async deletePoint(id: string, deleteToken: string | undefined, user?: { userId: string; role: string }) {
+    const point = await this.prisma.point.findUnique({ where: { id } });
+    if (!point) throw new NotFoundException('Punto no encontrado');
+
+    const isModerator = user?.role === 'moderator';
+    const isOwner = !!user && point.createdById === user.userId;
+    const tokenOk = deleteToken ? verifyDeleteToken(id, deleteToken, this.config.get<string>('JWT_SECRET')) : false;
+
+    if (!isModerator && !isOwner && !tokenOk) {
+      throw new ForbiddenException('No tienes permiso para borrar este punto');
+    }
+    await this.prisma.point.delete({ where: { id } });
+    return { id, deleted: true };
   }
 
   private buildContacts(raw?: ContactInput[]): ContactInput[] {

@@ -1,5 +1,5 @@
 ﻿import {
-  Controller, Get, Post, Body, Param, Query, Req, UseGuards, BadRequestException,
+  Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
@@ -165,6 +165,18 @@ export class PointsController {
       },
       req.user?.userId,
     );
+  }
+
+  @Delete(':id')
+  @UseGuards(AuthGuard)
+  async delete(
+    @Param('id') id: string,
+    @Body() body: { deleteToken?: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    // Borra un punto rápido (p. ej. un SOS creado por error). El AuthGuard permite
+    // llegar aquí sin sesión (user undefined): en ese caso se exige deleteToken.
+    return this.pointService.deletePoint(id, body?.deleteToken, req.user);
   }
 
   // Valida que las URLs de fotos pertenezcan al almacenamiento configurado y que
