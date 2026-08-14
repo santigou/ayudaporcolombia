@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes, useNavigate } from "react-router-dom";
+import { HelpCircle, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Home } from "./pages/Home";
 import { CreatePoint } from "./pages/CreatePoint";
 import { Login } from "./pages/Login";
@@ -25,8 +26,16 @@ function Navbar() {
   const { reset } = useOnboarding();
   const { open } = useLoginModal();
   const { theme, toggle } = useTheme();
+  const navigate = useNavigate();
   // Menú hamburguesa abierto/cerrado (solo móvil). En desktop se ignora.
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Cierra sesión y SIEMPRE vuelve al home: si estabas en /moderador o /crear,
+  // esas páginas ya no tienen sentido para un usuario deslogueado.
+  function handleLogout() {
+    logout();
+    navigate("/");
+  }
 
   // Cierra el panel con Escape (accesibilidad).
   useEffect(() => {
@@ -50,14 +59,14 @@ function Navbar() {
           usa una "etiqueta" rellena sin borde para no confundirse con ellos. */}
       <nav className="hidden md:flex items-center gap-2 text-sm">
         <button onClick={toggle} aria-label="Cambiar tema" className={navIconButton}>
-          {theme === "dark" ? "☀️" : "🌙"}
+          {theme === "dark" ? <Sun className="h-5 w-5" aria-hidden="true" /> : <Moon className="h-5 w-5" aria-hidden="true" />}
         </button>
         <button onClick={reset} className={navButton} title="Volver a ver el tutorial">
-          <span aria-hidden="true">❓</span> ¿Cómo funciona?
+          <HelpCircle className="h-4 w-4" aria-hidden="true" /> ¿Cómo funciona?
         </button>
         {user?.role === "moderator" && (
           <Link to="/moderador" className={navButton}>
-            <span aria-hidden="true">🛡️</span> Moderación
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Moderación
           </Link>
         )}
         {user ? (
@@ -69,8 +78,8 @@ function Navbar() {
             >
               {user.email}
             </span>
-            <button onClick={() => logout()} className={navButton}>
-              <span aria-hidden="true">🚪</span> Salir
+            <button onClick={handleLogout} className={navButton}>
+              <LogOut className="h-4 w-4" aria-hidden="true" /> Salir
             </button>
           </>
         ) : (
@@ -117,7 +126,7 @@ function Navbar() {
               }}
               className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <span aria-hidden="true">❓</span> ¿Cómo funciona?
+              <HelpCircle className="h-4 w-4" aria-hidden="true" /> ¿Cómo funciona?
             </button>
             {user?.role === "moderator" && (
               <Link
@@ -125,7 +134,7 @@ function Navbar() {
                 onClick={() => setMenuOpen(false)}
                 className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                <span aria-hidden="true">🛡️</span> Moderación
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Moderación
               </Link>
             )}
             <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -138,11 +147,11 @@ function Navbar() {
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
-                    logout();
+                    handleLogout();
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  <span aria-hidden="true">🚪</span> Salir
+                  <LogOut className="h-4 w-4" aria-hidden="true" /> Salir
                 </button>
               </>
             ) : (
