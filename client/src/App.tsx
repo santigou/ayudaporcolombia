@@ -12,6 +12,14 @@ import { useLoginModal } from "./context/LoginModalContext";
 import { useTheme } from "./hooks/useTheme";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 
+// Botones del nav de escritorio: pill con borde/fondo visibles siempre (no solo
+// hover), para distinguirlos de texto informativo suelto (ver Navbar).
+const navButton =
+  "flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:bg-gray-800";
+// Variante circular para el botón de solo ícono (toggle de tema).
+const navIconButton =
+  "flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-base text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:bg-gray-800";
+
 function Navbar() {
   const { user, logout } = useAuth();
   const { reset } = useOnboarding();
@@ -36,25 +44,33 @@ function Navbar() {
         Ayuda por Colombia
       </Link>
 
-      {/* Nav de escritorio (≥md): horizontal, igual que antes. */}
-      <nav className="hidden md:flex items-center gap-3 text-sm">
-        {/* Toggle claro/oscuro */}
-        <button onClick={toggle} aria-label="Cambiar tema" className="text-lg text-gray-500 hover:text-brand-dark dark:text-gray-400 dark:hover:text-brand">
+      {/* Nav de escritorio (≥md): horizontal. Los botones llevan borde/fondo
+          visibles SIEMPRE (no solo en hover) para que se lean como controles a
+          simple vista; el correo del usuario (solo informativo, no clicable)
+          usa una "etiqueta" rellena sin borde para no confundirse con ellos. */}
+      <nav className="hidden md:flex items-center gap-2 text-sm">
+        <button onClick={toggle} aria-label="Cambiar tema" className={navIconButton}>
           {theme === "dark" ? "☀️" : "🌙"}
         </button>
-        <button onClick={reset} className="text-gray-500 hover:text-brand-dark dark:text-gray-400 dark:hover:text-brand" title="Volver a ver el tutorial">
-          ¿Cómo funciona?
+        <button onClick={reset} className={navButton} title="Volver a ver el tutorial">
+          <span aria-hidden="true">❓</span> ¿Cómo funciona?
         </button>
         {user?.role === "moderator" && (
-          <Link to="/moderador" className="text-gray-600 hover:text-brand-dark dark:text-gray-300 dark:hover:text-brand">
-            Moderación
+          <Link to="/moderador" className={navButton}>
+            <span aria-hidden="true">🛡️</span> Moderación
           </Link>
         )}
         {user ? (
           <>
-            <span className="text-gray-500 hidden sm:inline dark:text-gray-400">{user.email}</span>
-            <button onClick={() => logout()} className="text-gray-600 hover:text-brand-dark dark:text-gray-300 dark:hover:text-brand">
-              Salir
+            <span className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+            <span
+              className="hidden rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 sm:inline dark:bg-gray-800 dark:text-gray-400"
+              title={user.email}
+            >
+              {user.email}
+            </span>
+            <button onClick={() => logout()} className={navButton}>
+              <span aria-hidden="true">🚪</span> Salir
             </button>
           </>
         ) : (
@@ -99,17 +115,17 @@ function Navbar() {
                 setMenuOpen(false);
                 reset();
               }}
-              className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              ¿Cómo funciona?
+              <span aria-hidden="true">❓</span> ¿Cómo funciona?
             </button>
             {user?.role === "moderator" && (
               <Link
                 to="/moderador"
                 onClick={() => setMenuOpen(false)}
-                className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
-                Moderación
+                <span aria-hidden="true">🛡️</span> Moderación
               </Link>
             )}
             <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -124,9 +140,9 @@ function Navbar() {
                     setMenuOpen(false);
                     logout();
                   }}
-                  className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  Salir
+                  <span aria-hidden="true">🚪</span> Salir
                 </button>
               </>
             ) : (

@@ -131,6 +131,11 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
                 />
                 Quiero postularme como moderador
               </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Un moderador verifica que los puntos de ayuda (refugios, centros de acopio, atención médica, etc.)
+                sean reales antes de publicarse, y aprueba solicitudes de otras personas que quieran ser moderadoras.
+                Márcalo solo si puedes dedicarle tiempo a esa verificación.
+              </p>
               {wantsModerator && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Tu solicitud quedará pendiente hasta que un moderador existente la apruebe.

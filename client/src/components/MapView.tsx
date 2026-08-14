@@ -284,6 +284,10 @@ export function MapView({
       // Al centrar, no hacer zoom más allá de 11 (~50 km de diámetro visible).
       fitBoundsOptions: { maxZoom: 11 },
       showUserLocation: true,
+      // Sin círculo de precisión: con geolocalización por IP/Wi-Fi el radio de
+      // error puede ser de varios km y termina cubriendo medio departamento sin
+      // aportar información útil. Dejamos solo el punto azul de ubicación.
+      showAccuracyCircle: false,
     });
     map.addControl(geolocate, "top-right");
     mapRef.current = map;

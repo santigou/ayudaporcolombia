@@ -3,7 +3,13 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-:root { color-scheme: light dark; }
+/* color-scheme fijado por NUESTRO toggle (clase .dark en <html>), no por la
+   preferencia del sistema operativo. Con "light dark" el navegador elegía el
+   render nativo de inputs/selects según el SO, ignorando el toggle en pantalla:
+   si el SO estaba en oscuro, los controles nativos se quedaban oscuros aunque
+   la app ya estuviera en claro (fondo/texto ilegibles). */
+:root { color-scheme: light; }
+:root.dark { color-scheme: dark; }
 body { background-color: #ffffff; color: #111827; }
 .dark body { background-color: #0b1220; color: #e5e7eb; }
 

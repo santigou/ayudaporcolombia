@@ -54,7 +54,12 @@ export function OnboardingPointDetail({
     : null;
 
   return (
-    <div className="flex h-full flex-col">
+    // mx-auto + max-w: en móvil el ancho real ya es angosto y esto no cambia
+    // nada, pero en desktop evita que la galería (aspect-[4/3] w-full) y el
+    // resto del contenido se estiren al ancho completo de la pantalla y se
+    // vean "agigantados" — el detalle real vive siempre en un panel angosto
+    // (aside md:w-96 o el bottom sheet móvil), nunca a pantalla completa.
+    <div className="mx-auto flex h-full w-full max-w-xl flex-col">
       {point.photos.length > 0 && (
         <div className="shrink-0 px-4 pt-3">
           <ImageGallery photos={point.photos} alt={point.title} />

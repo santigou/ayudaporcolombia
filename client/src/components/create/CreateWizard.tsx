@@ -4,6 +4,7 @@ import { MapView } from "../MapView";
 import { reverseGeocode, type AddressResult } from "../AddressSearch";
 import { api, ApiError, uploadFile } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { useLoginModal } from "../../context/LoginModalContext";
 import {
   HELP_TYPES,
   MAX_PHOTOS,
@@ -20,13 +21,7 @@ import { LocationAccordion } from "./LocationAccordion";
 import { PhotoInput } from "./PhotoInput";
 import { ReviewStep } from "./ReviewStep";
 import { SupplyPicker } from "./SupplyPicker";
-import {
-  clearDraft,
-  dataUrlToFile,
-  fileToDataUrl,
-  loadDraft,
-  saveDraft,
-} from "./draft";
+import { clearDraft, dataUrlToFile, loadDraft } from "./draft";
 
 const STEPS = [
   { title: "¿Qué vas a publicar?" },
@@ -46,6 +41,7 @@ function emptyLocation(): LocationDraft {
 export function CreateWizard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const loginModal = useLoginModal();
 
   const restored = useMemo(() => loadDraft(), []);
 
@@ -229,37 +225,6 @@ export function CreateWizard() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  // Antes de mandar a iniciar sesión, persistimos TODO el estado del asistente
-  // (incluidas las fotos como base64) para restaurarlo al volver de /login y no
-  // perder un formulario largo. Si las fotos exceden la cuota de sessionStorage,
-  // guardamos sin ellas antes que perder el resto.
-  async function goToLogin() {
-    const payload = {
-      type,
-      title,
-      description,
-      helpType,
-      supplies,
-      contacts,
-      locations,
-      step,
-      activeIndex,
-    };
-    try {
-      const photoData = await Promise.all(
-        photos.map(async (f) => ({ name: f.name, dataUrl: await fileToDataUrl(f) })),
-      );
-      saveDraft({ ...payload, photos: photoData });
-    } catch {
-      try {
-        saveDraft({ ...payload, photos: [] });
-      } catch {
-        // cuota agotada: no bloqueamos el login
-      }
-    }
-    navigate("/login");
   }
 
   if (authLoading) {
@@ -499,7 +464,7 @@ export function CreateWizard() {
               needsLogin={needsLogin}
               submitting={submitting}
               error={error}
-              onLogin={goToLogin}
+              onLogin={() => loginModal.open("Inicia sesión para publicar tu punto de ayuda.")}
             />
           )}
         </div>
