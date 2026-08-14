@@ -125,6 +125,27 @@ function Navbar() {
             className="fixed inset-0 top-14 z-20 bg-black/20 md:hidden"
           />
           <div className="absolute right-0 top-14 z-30 w-60 origin-top-right rounded-b-lg border border-t-0 border-gray-200 bg-white py-1 shadow-lg md:hidden dark:border-gray-700 dark:bg-gray-900">
+            {/* Toggle claro/oscuro: en escritorio vive en el nav (hidden md:flex),
+                así que en móvil solo aparecía aquí — antes no aparecía en ningún
+                lado. */}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                toggle();
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              {theme === "dark" ? (
+                <>
+                  <Sun className="h-4 w-4" aria-hidden="true" /> Modo claro
+                </>
+              ) : (
+                <>
+                  <Moon className="h-4 w-4" aria-hidden="true" /> Modo oscuro
+                </>
+              )}
+            </button>
             <button
               type="button"
               onClick={() => {

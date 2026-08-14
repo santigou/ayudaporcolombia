@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { usePointDetail } from "../hooks/usePointDetail";
 import { PointDetailContent } from "./PointDetailContent";
 import { VerifyBar } from "./VerifyBar";
@@ -22,6 +23,10 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
   const detail = usePointDetail(point.id);
   const isNeedHelp = point.type === "need_help";
   const address = locationLabel(point.location);
+  // El bloque de badges + autor + verificar/compartir ocupa espacio del header
+  // fijo (que ya le resta lugar al mapa/lista debajo). En móvil queda plegado
+  // por defecto; el título sigue siempre visible como resumen.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Verificación oficial de moderador: tras éxito, propaga el nuevo
   // verificationStatus al Home (actualiza `selected` y la lista de puntos).
@@ -56,55 +61,70 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
         >
           ✕
         </button>
-        <h2 className="pr-10 text-base font-bold text-gray-900">{point.title}</h2>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          {point.status === "resolved" ? (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-              Resuelto
-            </span>
-          ) : isNeedHelp ? (
-            point.verificationStatus === "approved" ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                ✓ Verificado
-              </span>
-            ) : (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
-                No verificado
-              </span>
-            )
-          ) : point.helpType ? (
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-              {point.helpType}
-            </span>
-          ) : null}
-          {address && <span className="text-xs text-gray-400">{address}</span>}
-        </div>
-        <div className="mt-1.5 flex items-center gap-2">
-          {detail.createdByEmail ? (
-            <>
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold uppercase text-gray-600">
-                {detail.createdByEmail.charAt(0)}
-              </span>
-              <span className="text-xs text-gray-600">{detail.createdByEmail}</span>
-            </>
-          ) : (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-              Anónimo
-            </span>
-          )}
-        </div>
-        <VerifyBar
-          code={point.code}
-          validationCount={detail.validationCount}
-          userValidated={detail.userValidated}
-          validating={detail.validating}
-          onValidate={detail.validate}
-          pointType={point.type}
-          verificationStatus={point.verificationStatus}
-          onModeratorVerify={handleModeratorVerify}
-          moderatorVerifying={detail.moderatorVerifying}
-          className="mt-2"
-        />
+        {/* Título = resumen siempre visible y a la vez el control que abre/cierra
+            badges + autor + verificar/compartir (evita quedarse sin saber qué
+            punto es mientras está plegado). */}
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((v) => !v)}
+          aria-expanded={detailsOpen}
+          className="flex w-full items-center gap-1.5 pr-10 text-left"
+        >
+          <h2 className="min-w-0 flex-1 truncate text-base font-bold text-gray-900">{point.title}</h2>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${detailsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+        </button>
+        {detailsOpen && (
+          <>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {point.status === "resolved" ? (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                  Resuelto
+                </span>
+              ) : isNeedHelp ? (
+                point.verificationStatus === "approved" ? (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                    ✓ Verificado
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                    No verificado
+                  </span>
+                )
+              ) : point.helpType ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  {point.helpType}
+                </span>
+              ) : null}
+              {address && <span className="text-xs text-gray-400">{address}</span>}
+            </div>
+            <div className="mt-1.5 flex items-center gap-2">
+              {detail.createdByEmail ? (
+                <>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold uppercase text-gray-600">
+                    {detail.createdByEmail.charAt(0)}
+                  </span>
+                  <span className="text-xs text-gray-600">{detail.createdByEmail}</span>
+                </>
+              ) : (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                  Anónimo
+                </span>
+              )}
+            </div>
+            <VerifyBar
+              code={point.code}
+              validationCount={detail.validationCount}
+              userValidated={detail.userValidated}
+              validating={detail.validating}
+              onValidate={detail.validate}
+              pointType={point.type}
+              verificationStatus={point.verificationStatus}
+              onModeratorVerify={handleModeratorVerify}
+              moderatorVerifying={detail.moderatorVerifying}
+              className="mt-2"
+            />
+          </>
+        )}
       </header>
 
       {/* Contenido con pestañas (Información / Novedades). Cada pestaña gestiona

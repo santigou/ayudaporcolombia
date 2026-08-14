@@ -183,7 +183,7 @@ export function Home() {
 
   return (
     <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">
-      <div className="relative h-[55vh] md:h-auto md:flex-1">
+      <div className="relative h-[40vh] md:h-auto md:flex-1">
         <MapView
           points={filteredPoints}
           selectedId={selected?.id}
