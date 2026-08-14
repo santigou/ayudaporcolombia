@@ -8,3 +8,9 @@ server-nestjs/uploads/*
 *.log
 .DS_Store
 
+
+# Caché de geocoding del importador de puntos
+scripts/.geocache.json
+
+__pycache__/
+*.pyc
