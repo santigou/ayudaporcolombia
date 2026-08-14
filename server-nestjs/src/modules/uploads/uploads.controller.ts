@@ -1,12 +1,10 @@
 import {
   Controller, Post, Put, Body, Param, Req,
-  UseGuards, BadRequestException, NotFoundException,
+  BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../shared/application/validators/validation.pipe';
-import { AuthGuard } from '../../shared/infrastructure/guards/auth.guard';
-import { RequireAuth } from '../../shared/application/decorators/roles.decorator';
 import { AuthenticatedRequest } from '../../shared/infrastructure/middleware/auth.middleware';
 import { UploadsService } from './uploads.service';
 import * as fs from 'fs';
@@ -32,9 +30,15 @@ export class UploadsController {
 
   // Pide una URL pre-firmada para subir una foto directamente al almacenamiento.
   // El navegador hace luego un PUT a `uploadUrl` y guarda `publicUrl` en el punto.
+  //
+  // SIN @RequireAuth() a propósito: un `need_help` (SOS) se publica de forma
+  // anónima (ver PointsController.create), y sus fotos se suben ANTES de crear
+  // el punto → exigir sesión aquí rompería el flujo anónimo con un 401.
+  // El anti-abuso se mantiene por otras vías: solo imágenes (mime validado),
+  // filename saneado (UUID + extensión), la URL pre-firmada vence en 5 min,
+  // tope de 10 MB en el PUT local y MAX_PHOTOS/allowedPhotoPrefixes al crear
+  // el punto.
   @Post('presign')
-  @UseGuards(AuthGuard)
-  @RequireAuth()
   async presign(
     @Body(new ZodValidationPipe(presignSchema)) body: { filename: string; mime: string },
   ) {

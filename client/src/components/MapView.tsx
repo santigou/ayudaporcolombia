@@ -271,11 +271,18 @@ export function MapView({
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       // Desactiva la atribución por defecto (texto completo siempre visible en
-      // pantallas grandes) y añadimos una COMPACTA (solo el botón ⓘ) que arranca
-      // cerrada y se expande al pasar el ratón / pulsar.
+      // pantallas grandes) y añadimos una COMPACTA (solo el botón ⓘ).
       attributionControl: false,
     });
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    // Quirk de MapLibre v4: aunque el control sea compacto, _updateCompact() lo
+    // monta EXPANDIDO (añade .maplibregl-compact-show la primera vez) y muestra
+    // "OpenFreeMap · Data from OpenStreetMap…" sobre la esquina del mapa hasta
+    // que se arrastra el mapa. Lo devolvemos a su estado cerrado: queda solo el
+    // botón ⓘ (que sigue funcionando si alguien quiere ver los créditos).
+    containerRef.current
+      ?.querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show")
+      .forEach((el) => el.classList.remove("maplibregl-compact-show"));
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     // Botón 🎯 para recentrar en la ubicación del usuario. showUserLocation (default
     // true) dibuja el punto azul; trigger() lo activa automáticamente al cargar.

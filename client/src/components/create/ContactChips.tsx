@@ -41,7 +41,7 @@ export function ContactChips({ contacts, onAdd, onRemove }: ContactChipsProps) {
           <select
             value={type}
             onChange={(e) => setType(e.target.value as ContactType)}
-            className="rounded-md border border-gray-300 px-2 py-2 text-sm"
+            className="min-w-0 rounded-md border border-gray-300 px-2 py-2 text-sm"
           >
             {CONTACT_TYPES.map((v) => (
               <option key={v} value={v}>
@@ -61,7 +61,7 @@ export function ContactChips({ contacts, onAdd, onRemove }: ContactChipsProps) {
                 add();
               }
             }}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
             placeholder={
               type === "phone" || type === "whatsapp" ? "+57 300 1234567" : "@usuario o correo"
             }

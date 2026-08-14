@@ -11,8 +11,13 @@ Fuentes:
      con la publishable key del bundle: tablas `centros`, `ciudades`, `necesidades`).
      La mayoría ya trae lat/lng.
 
-Los puntos se crean como `offer_help` + `status=active` + `verificationStatus=approved`
-para que sean visibles de inmediato en el mapa público (ver point.service.isPubliclyVisible).
+Los puntos se crean como `offer_help`. La visibilidad depende de la VALIDACIÓN de la
+dirección (regla acordada): solo quedan activos+aprobados (visibles en el mapa) los
+puntos cuya dirección en el texto concuerda con sus coordenadas (geocodificando la
+dirección y comparando, tolerancia --match-radius). Todo lo demás — sin dirección en
+el texto, dirección no localizable o que no concuerda — queda en estado `pending`
+para revisión de moderadores. Los contactos (teléfono/whatsapp/email/instagram)
+extraídos del texto se guardan en la tabla Contact como enriquecimiento.
 
 Anti-duplicados: distancia haversine contra los puntos YA existentes en la BD y contra
 los candidatos ya aceptados en este lote. Se considera duplicado si:
@@ -148,11 +153,64 @@ def digest8(seed: str) -> bytes:
     return hashlib.sha256(seed.encode("utf-8")).digest()[:8]
 
 
+# --- Extracción de contactos del texto libre -------------------------------------
+PHONE_RE = re.compile(r"(?:\+?57[\s.\-]?)?\b(3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2})\b"
+                      r"|\b(60\d[\s.\-]?\d{3}[\s.\-]?\d{3})\b")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+IG_RE = re.compile(r"instagram\.com/([A-Za-z0-9_.]{2,30})|(?:^|[\s:,])(@([A-Za-z0-9_.]{3,30}))")
+# Segmentos de URL de Instagram que NO son usuarios (evita falsos positivos).
+IG_BLOCKLIST = {"reels", "reel", "p", "stories", "share", "watch", "www", "explore",
+                "profile", "hashtag", "accounts", "tv"}
+
+
+def fmt_phone(digits: str) -> str:
+    if len(digits) == 10 and digits.startswith("3"):
+        return f"+57 {digits[:3]} {digits[3:6]} {digits[6:]}"
+    if len(digits) in (7, 8):
+        return f"+57 {digits}"
+    return digits
+
+
+def extract_contacts(text: str) -> list:
+    """Detecta teléfonos/whatsapp/emails/instagram en texto libre (notas, tarjetas)."""
+    out, seen = [], set()
+    if not text:
+        return out
+    for m in EMAIL_RE.finditer(text):
+        v = m.group(0).strip().lower()
+        if v not in seen:
+            seen.add(v)
+            out.append({"type": "email", "value": v})
+    for m in PHONE_RE.finditer(text):
+        digits = re.sub(r"\D", "", m.group(0))
+        if len(digits) == 12 and digits.startswith("57"):
+            digits = digits[2:]
+        if not ((len(digits) == 10 and digits[0] == "3") or (len(digits) in (7, 8) and digits[0] == "6")):
+            continue  # no parece número colombiano
+        ctx = text[max(0, m.start() - 40): m.end() + 40].lower()
+        ctype = "whatsapp" if re.search(r"whats\s*app|wpp", ctx) else "phone"
+        key = ("d", digits)
+        if key not in seen:
+            seen.add(key)
+            out.append({"type": ctype, "value": fmt_phone(digits)})
+    for m in IG_RE.finditer(text):
+        handle = (m.group(1) or m.group(3) or "").strip().lstrip("@").lower().rstrip(".")
+        if not handle or handle in IG_BLOCKLIST:
+            continue
+        if EMAIL_RE.fullmatch(handle):
+            continue
+        key = ("ig", handle)
+        if key not in seen:
+            seen.add(key)
+            out.append({"type": "instagram", "value": "@" + handle})
+    return out
+
+
 # --- Modelo intermedio de un candidato ------------------------------------------
 class Candidate:
     def __init__(self, source, title, help_type, city, department="", address="",
                  lat=None, lng=None, supplies=None, description="", geocode_query=None,
-                 approx_address=False, code_seed=""):
+                 approx_address=False, code_seed="", contacts=None):
         self.source = source                  # 'emergencias' | 'pereira'
         self.title = title.strip()
         self.help_type = help_type
@@ -165,8 +223,11 @@ class Candidate:
         self.description = description.strip()
         self.geocode_query = geocode_query    # query principal para Nominatim
         self.approx_address = approx_address  # la fuente no publica dirección exacta
+        self.contacts = contacts or []        # [{type: phone|whatsapp|email|instagram, value}]
         self.code_seed = code_seed or f"{source}|{title}|{address or city}"
         self.geo_precision = "fuente"         # fuente | geocodificada | aproximada
+        self.visible = False                  # ¿dirección validada contra coords?
+        self.pend_reason = ""                 # motivo si queda pending
 
 
 # --- Geocoder (Nominatim, 1 req/s, con caché en disco) ---------------------------
@@ -288,12 +349,25 @@ def fetch_emergencias(limit: int = 0) -> list:
         elif address:
             geocode_query = f"{address}, {city}, Colombia"
 
+        # Contactos: campo "Teléfono" oficial + patrones en el texto de la tarjeta
+        phone = re.sub(r"[^\d+]", "", fields.get("Teléfono", ""))
+        contacts = extract_contacts(strip_tags(art))
+        if len(phone) >= 7 and not any(re.sub(r"\D", "", x["value"]).endswith(phone)
+                                       for x in contacts if x["type"] in ("phone", "whatsapp")):
+            contacts.insert(0, {"type": "phone", "value": fmt_phone(phone)})
+
         # Descripción compuesta (los insumos van aparte, a PointSupply)
         lines = []
+        if address:
+            lines.append(f"Dirección: {address}")
         if fields.get("Horario"):
             lines.append(f"Horario: {fields['Horario']}")
         if fields.get("Responsable"):
             lines.append(f"Responsable: {fields['Responsable']}")
+        if contacts:
+            phones_txt = ", ".join(x["value"] for x in contacts if x["type"] in ("phone", "whatsapp"))
+            if phones_txt:
+                lines.append(f"Teléfono: {phones_txt}")
         if estado_label and estado_label.lower() != "recibiendo":
             lines.append(f"Estado: {estado_label}")
         if unconfirmed:
@@ -313,6 +387,10 @@ def fetch_emergencias(limit: int = 0) -> list:
             description=description,
             geocode_query=geocode_query,
             approx_address=approx,
+            contacts=contacts,
+            # Semilla ESTABLE: título+ciudad (sin dirección, que la fuente puede
+            # completar después — cambiaría el código y no reconocería el punto).
+            code_seed=f"emergencias|{title}|{city}",
         ))
         if limit and len(cands) >= limit:
             break
@@ -323,6 +401,16 @@ def fetch_emergencias(limit: int = 0) -> list:
 def sb_get(path: str, select: str) -> list:
     url = f"{SUPABASE_URL}/rest/v1/{path}?select={select}"
     return json.loads(http_get(url, headers=SUPABASE_HEADERS))
+
+
+def norm_key(text) -> str:
+    return " ".join((text or "").split()).lower()
+
+
+def title_key_of(title, city, is_pereira):
+    """Clave estable (título, ciudad, fuente) para reconocer puntos ya importados
+    aunque cambien campos mutables de la fuente (dirección, coordenadas)."""
+    return (norm_key(title), norm_key(city), is_pereira)
 
 
 def fetch_pereira(limit: int = 0) -> list:
@@ -394,6 +482,9 @@ def fetch_pereira(limit: int = 0) -> list:
         lines.append("Fuente: ayudaspereira.com")
         description = "\n".join(lines)
 
+        # Contactos escondidos en las notas (teléfonos, whatsapp, IG, emails)
+        contacts = extract_contacts(f"{notas} {address}")
+
         # Geocoding solo si la fuente no trae coordenadas.
         geo_q = None
         if lat is None:
@@ -412,10 +503,35 @@ def fetch_pereira(limit: int = 0) -> list:
             description=description,
             geocode_query=geo_q,
             approx_address=not address,
+            contacts=contacts,
+            # Semilla ESTABLE: el UUID del centro en la fuente no cambia aunque
+            # editen nombre/dirección/coordenadas.
+            code_seed=f"pereira|{c.get('id')}",
         ))
         if limit and len(cands) >= limit:
             break
     return cands
+
+
+# --- Validación: ¿la ubicación concuerda con la dirección del texto? -------------
+def check_address(address, city, lat, lng, geocoder, radius_m):
+    """Geocodifica la dirección y la compara con las coordenadas del punto.
+
+    Devuelve (ok, motivo, distancia_m):
+      - sin dirección en el texto            → (False, 'sin dirección en el texto', None)
+      - dirección no localizable por Nominatim → (False, 'dirección no localizable en el mapa', None)
+      - distancia > radius_m                 → (False, 'la ubicación no concuerda con la dirección (X m)', d)
+      - en cualquier otro caso               → (True,  'dirección válida (X m)', d)
+    """
+    if not address:
+        return False, "sin dirección en el texto", None
+    g = geocoder.geocode(f"{address}, {city}, Colombia")
+    if not g:
+        return False, "dirección no localizable en el mapa", None
+    d = haversine_m(lat, lng, g[0], g[1])
+    if d <= radius_m:
+        return True, f"dirección válida o cercana ({d:.0f} m)", d
+    return False, f"la ubicación no concuerda con la dirección ({d:.0f} m)", d
 
 
 # --- Base de datos ----------------------------------------------------------------
@@ -452,20 +568,26 @@ def connect_db(url: str, retries: int = 5):
 
 
 def load_existing(conn):
-    """Puntos existentes con ubicación (anclas de dedup) + sus códigos (idempotencia)."""
-    points, codes = [], set()
+    """Devuelve (anclas espaciales, códigos existentes, índice título→id).
+
+    El índice por (título, ciudad, fuente) permite reconocer puntos ya importados
+    aunque su semilla/código haya cambiado (p. ej. puntos importados con semillas
+    antiguas, o cuando la fuente edita campos mutables)."""
+    points, codes, by_title = [], set(), {}
     with conn.cursor() as cur:
         cur.execute('''
-            SELECT p.code, p.title, ht.name, l.latitude, l.longitude
+            SELECT p.id, p.code, p.title, ht.name, l.city, l.latitude, l.longitude,
+                   (p.description LIKE '%ayudaspereira.com%') AS is_pereira
             FROM "Point" p
             JOIN "PointLocation" pl ON pl."pointId" = p.id
             JOIN "Location" l ON l.id = pl."locationId"
             LEFT JOIN "HelpType" ht ON ht.id = p."helpTypeId"''')
-        for code, title, help_type, lat, lng in cur.fetchall():
+        for pid, code, title, help_type, city, lat, lng, is_pereira in cur.fetchall():
             codes.add(code)
             points.append({"title": title or "", "help_type": (help_type or "").lower(),
                            "lat": float(lat), "lng": float(lng), "precise": True})
-    return points, codes
+            by_title.setdefault(title_key_of(title, city, bool(is_pereira)), pid)
+    return points, codes, by_title
 
 
 def find_duplicate(cand, pool: list, radius_m: float, hard_m: float):
@@ -512,6 +634,13 @@ def insert_candidates(conn, to_create: list, existing_codes: set = None) -> int:
     with conn.cursor() as cur:
         for c in to_create:
             point_id = str(uuid.uuid4())
+            # Regla de visibilidad: solo activo+aprobado si la dirección del texto
+            # concuerda con las coordenadas; el resto queda pending para moderación.
+            status = "active" if c.visible else "pending"
+            verif = "approved" if c.visible else "pending"
+            desc = c.description
+            if not c.visible:
+                desc = (desc + f"\n[Pendiente: {c.pend_reason}. Queda a la espera de revisión.]").strip()
             cur.execute('''
                 INSERT INTO "Point" ("id","code","type","title","description","helpTypeId",
                                      "status","verificationStatus","validationCount",
@@ -521,7 +650,7 @@ def insert_candidates(conn, to_create: list, existing_codes: set = None) -> int:
                         NULL,NOW(),NOW(),NULL)
                 RETURNING "id"''',
                 (point_id, make_code(c.code_seed, used_codes), "offer_help", c.title,
-                 c.description, get_help_type(cur, c.help_type), "active", "approved"))
+                 desc, get_help_type(cur, c.help_type), status, verif))
             point_id = cur.fetchone()[0]
 
             loc_id = str(uuid.uuid4())
@@ -531,14 +660,167 @@ def insert_candidates(conn, to_create: list, existing_codes: set = None) -> int:
             cur.execute('''INSERT INTO "PointLocation" ("pointId","locationId","locationType")
                            VALUES (%s,%s,'location'::"PointLocationType")''', (point_id, loc_id))
 
+            for ct in c.contacts:  # teléfonos/whatsapp/IG/emails → tabla Contact
+                cur.execute('''INSERT INTO "Contact" ("id","pointId","type","value","isPublic")
+                               VALUES (%s,%s,%s::"ContactType",%s,true)''',
+                            (str(uuid.uuid4()), point_id, ct["type"], ct["value"]))
+
             for s in c.supplies:
                 cur.execute('''INSERT INTO "PointSupply" ("pointId","supplyId","targetQuantity","receivedQuantity","unit")
                                VALUES (%s,%s,NULL,NULL,NULL) ON CONFLICT DO NOTHING''',
                             (point_id, get_supply(cur, s)))
             created += 1
-            print(f"  ✅ [{c.source}] {c.title} — {c.city} ({c.help_type})", flush=True)
+            mark = "✅" if c.visible else "⏳"
+            print(f"  {mark} [{c.source}] {c.title} — {c.city} ({c.help_type})"
+                  + ("" if c.visible else f" [pending: {c.pend_reason}]"), flush=True)
     conn.commit()
     return created
+
+
+def backfill_contacts(conn, already_list) -> int:
+    """Agrega contactos (tel/whatsapp/IG/email) a puntos YA importados.
+
+    Idempotente: compara por valor exacto y por dígitos del teléfono (así
+    "+57 320 587 4422" no duplica a "3205874422" ya guardado).
+    """
+    added = 0
+    with conn.cursor() as cur:
+        for c in already_list:
+            if not c.contacts or not getattr(c, "db_id", None):
+                continue
+            point_id = c.db_id
+            cur.execute('SELECT "value" FROM "Contact" WHERE "pointId" = %s', (point_id,))
+            existing = [r[0] for r in cur.fetchall()]
+
+            def is_dup(value):
+                digits = re.sub(r"\D", "", value)
+                for e in existing:
+                    if e == value or (digits and re.sub(r"\D", "", e) == digits):
+                        return True
+                return False
+
+            for ct in c.contacts:
+                if is_dup(ct["value"]):
+                    continue
+                cur.execute('''INSERT INTO "Contact" ("id","pointId","type","value","isPublic")
+                               VALUES (%s,%s,%s::"ContactType",%s,true)''',
+                            (str(uuid.uuid4()), point_id, ct["type"], ct["value"]))
+                existing.append(ct["value"])
+                added += 1
+                print(f"  ☎ contacto agregado: {c.title} → {ct['type']}: {ct['value']}", flush=True)
+    conn.commit()
+    return added
+
+
+def backfill_addresses(conn, already_list) -> int:
+    """Completa la dirección de puntos YA importados cuando la fuente la publicó después.
+
+    En ayudaspereira los administradores completan `direccion` con el tiempo: un centro
+    importado sin dirección puede tenerla hoy. Localizamos el punto por su código
+    determinista y, si su Location no tiene address pero el candidato sí, la escribimos
+    en Location.address (ubicaciones) y añadimos la línea "Dirección:" a la descripción
+    (detalles). Idempotente: si ya tiene dirección, no se toca nada.
+    """
+    updated = 0
+    with conn.cursor() as cur:
+        for c in already_list:
+            if not c.address:
+                continue
+            point_id = getattr(c, "db_id", None)
+            if not point_id:
+                continue
+            # Ubicación principal del punto (rol 'location' primero).
+            cur.execute('''SELECT l.id, l.address FROM "Location" l
+                           JOIN "PointLocation" pl ON pl."locationId" = l.id
+                           WHERE pl."pointId" = %s
+                           ORDER BY CASE pl."locationType" WHEN 'location' THEN 0 ELSE 1 END
+                           LIMIT 1''', (point_id,))
+            loc = cur.fetchone()
+            if not loc or (loc[1] or "").strip():
+                continue  # no tiene Location o ya tiene dirección
+            loc_id = loc[0]
+
+            cur.execute('UPDATE "Location" SET "address" = %s WHERE "id" = %s',
+                        (c.address, loc_id))
+
+            cur.execute('SELECT "description" FROM "Point" WHERE "id" = %s', (point_id,))
+            desc = cur.fetchone()[0] or ""
+            line = f"Dirección: {c.address}"
+            if "Dirección:" not in desc:
+                if "\nFuente:" in desc:  # inserta antes de la línea de fuente
+                    desc = desc.replace("\nFuente:", f"\n{line}\nFuente:", 1)
+                else:
+                    desc = (desc + "\n" + line).strip()
+            # La nota de "sin dirección exacta" ya no aplica: se suaviza.
+            desc = desc.replace(
+                "la fuente no publica dirección exacta. Confirma antes de desplazarte.",
+                "las coordenadas son aproximadas; confirma antes de desplazarte.")
+            cur.execute('''UPDATE "Point" SET "description" = %s, "updatedAt" = NOW()
+                           WHERE "id" = %s''', (desc, point_id))
+
+            updated += 1
+            print(f"  📍 dirección agregada: {c.title} → {c.address}", flush=True)
+    conn.commit()
+    return updated
+
+
+def retrofit_points(conn, already_list, match_radius, geocoder) -> int:
+    """Re-evalúa puntos YA importados con la regla de dirección válida/cercana.
+
+    - Dirección concuerda con las coords → active+approved (visible).
+    - Sin dirección / no localizable / no concuerda → pending+pending (moderación).
+    - Se saltan los puntos que un moderador ya revisó (con filas en Verification):
+      el script nunca pisa una decisión humana.
+    - Idempotente: limpia notas "[Pendiente: …]" anteriores antes de re-etiquetar.
+    """
+    changed = 0
+    with conn.cursor() as cur:
+        for c in already_list:
+            if not getattr(c, "db_id", None):
+                continue
+            pid = c.db_id
+            cur.execute('SELECT 1 FROM "Verification" WHERE "pointId" = %s LIMIT 1', (pid,))
+            if cur.fetchone():
+                continue  # un moderador ya revisó este punto: no tocar
+            cur.execute('''SELECT p.status, p."verificationStatus", p.description,
+                                  l.address, l.city, l.latitude, l.longitude
+                           FROM "Point" p
+                           JOIN "PointLocation" pl ON pl."pointId" = p.id
+                           JOIN "Location" l ON l.id = pl."locationId"
+                           WHERE p.id = %s
+                           ORDER BY CASE pl."locationType" WHEN 'location' THEN 0 ELSE 1 END
+                           LIMIT 1''', (pid,))
+            row = cur.fetchone()
+            if not row:
+                continue
+            status, verif, desc, addr, city, lat, lng = row
+            addr = ((addr or "").strip() or c.address)   # la fuente puede traerla ahora
+            ok, reason, _ = check_address(addr, (city or c.city or "").strip(),
+                                          float(lat), float(lng), geocoder, match_radius)
+            desc = re.sub(r"\n?\[Pendiente:[^\]]*\]", "", desc or "").rstrip()
+            if addr and "Dirección:" not in desc:        # dirección siempre en el texto
+                desc = (desc + f"\nDirección: {addr}").strip()
+
+            if ok and status == "pending" and verif == "pending":
+                cur.execute('''UPDATE "Point" SET status = 'active'::"PointStatus",
+                               "verificationStatus" = 'approved'::"VerificationStatus",
+                               "description" = %s, "updatedAt" = NOW() WHERE "id" = %s''',
+                            (desc, pid))
+                changed += 1
+                print(f"  ✅ ahora visible: {c.title} ({reason})", flush=True)
+            elif not ok and status == "active" and verif == "approved":
+                desc += f"\n[Pendiente: {reason}. Queda a la espera de revisión.]"
+                cur.execute('''UPDATE "Point" SET status = 'pending'::"PointStatus",
+                               "verificationStatus" = 'pending'::"VerificationStatus",
+                               "description" = %s, "updatedAt" = NOW() WHERE "id" = %s''',
+                            (desc, pid))
+                changed += 1
+                print(f"  ⏳ a pending: {c.title} — {reason}", flush=True)
+            elif desc != (row[2] or ""):
+                cur.execute('UPDATE "Point" SET "description" = %s, "updatedAt" = NOW() WHERE "id" = %s',
+                            (desc, pid))
+    conn.commit()
+    return changed
 
 
 # --- Main ---------------------------------------------------------------------------
@@ -555,6 +837,8 @@ def main():
                     help="metros: duplicado si hay punto más cercano que esto Y mismo tipo (default 100)")
     ap.add_argument("--hard-radius", type=float, default=30.0,
                     help="metros: duplicado con cualquier punto más cercano que esto (default 30)")
+    ap.add_argument("--match-radius", type=float, default=500.0,
+                    help="metros: tolerancia dirección vs coordenadas; si supera, el punto queda pending (default 500)")
     ap.add_argument("--limit", type=int, default=0, help="procesar solo N candidatos por fuente (debug)")
     ap.add_argument("--dry-run", action="store_true", help="no escribir en la base de datos")
     ap.add_argument("--yes", action="store_true", help="no pedir confirmación")
@@ -569,7 +853,7 @@ def main():
           f"dry_run={args.dry_run} geocode={'no' if args.no_geocode else 'si'}")
 
     conn = connect_db(load_database_url(args.db_url))
-    existing, existing_codes = load_existing(conn)
+    existing, existing_codes, by_title = load_existing(conn)
     print(f"\nPuntos existentes en la BD (anclas de dedup): {len(existing)}")
 
     cands = []
@@ -610,14 +894,28 @@ def main():
     no_geo = [c for c in cands if c.lat is None]
     located = [c for c in cands if c.lat is not None]
 
+    # --- 1b) Validar: la ubicación debe concordar con la dirección del texto ------
+    print(f"\nValidando direccion vs coordenadas (tolerancia {args.match_radius:.0f} m)...")
+    for i, c in enumerate(located, 1):
+        ok, reason, _ = check_address(c.address, c.city, c.lat, c.lng,
+                                      geocoder, args.match_radius)
+        c.visible, c.pend_reason = ok, reason
+        if i % 20 == 0 or i == len(located):
+            print(f"  [{i}/{len(located)}] validados", flush=True)
+    geocoder.save()
+    n_vis = sum(1 for c in located if c.visible)
+    print(f"  → {n_vis} con dirección válida/cercana · {len(located) - n_vis} quedarían pending")
+
 
     # --- 2) Dedup: código determinista (re-ejecuciones) + radio (solo coords precisas)
     pool = list(existing)          # anclas espaciales (solo cuentan las precisas)
     to_create, dups, already = [], [], []
     seen_seeds, approx_batch = set(), set()
     for c in located:
-        # a) Idempotencia exacta: el código derivado ya existe en la BD o en el lote.
-        if c.code_seed in seen_seeds or candidate_code(c.code_seed) in existing_codes:
+        # a) Idempotencia: código determinista en BD/lote O punto ya importado con
+        #    el mismo título+ciudad+fuente (semillas antiguas o campos mutables).
+        if (c.code_seed in seen_seeds or candidate_code(c.code_seed) in existing_codes
+                or title_key_of(c.title, c.city, c.source == "pereira") in by_title):
             already.append(c)
             continue
         seen_seeds.add(c.code_seed)
@@ -644,6 +942,11 @@ def main():
             pool.append({"title": c.title, "help_type": c.help_type.lower(),
                          "lat": c.lat, "lng": c.lng, "precise": True})
 
+    # Adjunta el id real del punto ya importado (por título+ciudad+fuente) para que
+    # los backfills de teléfono/dirección lo encuentren sin depender del código.
+    for c in already:
+        c.db_id = by_title.get(title_key_of(c.title, c.city, c.source == "pereira"))
+
     # --- 3) Reporte ---------------------------------------------------------------
     by_src = {}
     for c in to_create:
@@ -657,6 +960,17 @@ def main():
     print(f"ya existentes (skip):      {len(already)}")
     print(f"sin geolocalizar (skip):   {len(no_geo)}")
     print(f"A CREAR:                   {len(to_create)}  {by_src}")
+    tc_vis = [c for c in to_create if c.visible]
+    print(f"  → visibles (dir. valida): {len(tc_vis)}")
+    print(f"  → pending (a moderar):    {len(to_create) - len(tc_vis)}")
+    cats = {}
+    for c in to_create:
+        if c.visible:
+            continue
+        cat = re.sub(r"\s*\([\d.,]+ m\)$", "", c.pend_reason)  # agrupa sin la distancia
+        cats[cat] = cats.get(cat, 0) + 1
+    for reason, n in sorted(cats.items(), key=lambda kv: -kv[1]):
+        print(f"      · {n:3} {reason}")
 
     if dups:
         print("\n-- Duplicados omitidos (mas cercano existente) --")
@@ -670,30 +984,45 @@ def main():
         print("\n-- Puntos a crear --")
         for c in to_create:
             print(f"  * [{c.source}] {c.title[:52]:54} {c.city} | {c.help_type} "
-                  f"| {len(c.supplies)} insumos | ({c.geo_precision})")
+                  f"| {len(c.supplies)} insumos | ({c.geo_precision}) "
+                  f"| {'VISIBLE' if c.visible else 'PENDING'}")
 
     # --- 4) Escritura --------------------------------------------------------------
     if args.dry_run:
         print("\n[dry-run] No se escribio nada en la base de datos.")
         return
-    if not to_create:
-        print("\nNada que insertar.")
-        return
-    if not args.yes:
-        resp = input(f"\nInsertar {len(to_create)} puntos en la BD? [s/N] ").strip().lower()
-        if resp not in ("s", "si", "sí", "y", "yes"):
-            print("Cancelado.")
-            return
 
-    print("\nInsertando ...")
-    created = insert_candidates(conn, to_create, existing_codes)
+    created = 0
+    if to_create:
+        if not args.yes:
+            resp = input(f"\nInsertar {len(to_create)} puntos en la BD? [s/N] ").strip().lower()
+            if resp not in ("s", "si", "sí", "y", "yes"):
+                print("Cancelado.")
+                return
+        print("\nInsertando ...")
+        created = insert_candidates(conn, to_create, existing_codes)
+
+    # Contactos y direcciones publicados DESPUÉS por las fuentes → se completan
+    # en los puntos ya importados (idempotente).
+    contacts_added = backfill_contacts(conn, already)
+    addr_added = backfill_addresses(conn, already)
+
+    # Re-clasificación de los ya importados con la regla de dirección válida/cercana
+    # (respeta lo que haya revisado un moderador).
+    retro = retrofit_points(conn, already, args.match_radius, geocoder)
 
     with conn.cursor() as cur:
         cur.execute('''SELECT count(*) FROM "Point" p
                        JOIN "PointLocation" pl ON pl."pointId" = p.id''')
         total = cur.fetchone()[0]
+        cur.execute('''SELECT count(*) FROM "Point" p
+                       JOIN "PointLocation" pl ON pl."pointId" = p.id
+                       WHERE p.status = 'active' AND p."verificationStatus" = 'approved' ''')
+        total_vis = cur.fetchone()[0]
     conn.close()
-    print(f"\nListo: {created} puntos creados. Total de puntos con ubicacion en la BD: {total}")
+    print(f"\nListo: {created} puntos creados, {contacts_added} contactos agregados, "
+          f"{addr_added} direcciones completadas, {retro} puntos re-clasificados. "
+          f"Total en BD: {total} · visibles en el mapa: {total_vis}")
 
 
 if __name__ == "__main__":
