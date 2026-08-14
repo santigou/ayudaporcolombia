@@ -71,7 +71,7 @@ export function ModeratorDashboard() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-4">
+    <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
       <h1 className="text-lg font-bold text-gray-900">Panel de moderación</h1>
       <div className="mt-3 flex gap-2 border-b border-gray-200">
         <button onClick={() => setTab("puntos")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "puntos" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
