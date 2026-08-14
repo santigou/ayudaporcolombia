@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
-import { HelpCircle, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { FileText, HelpCircle, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { TermsModal } from "./components/TermsModal";
 import { Home } from "./pages/Home";
 import { CreatePoint } from "./pages/CreatePoint";
 import { Login } from "./pages/Login";
@@ -29,6 +30,9 @@ function Navbar() {
   const navigate = useNavigate();
   // Menú hamburguesa abierto/cerrado (solo móvil). En desktop se ignora.
   const [menuOpen, setMenuOpen] = useState(false);
+  // Modal "Tus datos y esta app" (términos y uso de datos). Disponible para
+  // cualquiera, con o sin sesión.
+  const [termsOpen, setTermsOpen] = useState(false);
 
   // Cierra sesión y SIEMPRE vuelve al home: si estabas en /moderador o /crear,
   // esas páginas ya no tienen sentido para un usuario deslogueado.
@@ -63,6 +67,9 @@ function Navbar() {
         </button>
         <button onClick={reset} className={navButton} title="Volver a ver el tutorial">
           <HelpCircle className="h-4 w-4" aria-hidden="true" /> ¿Cómo funciona?
+        </button>
+        <button onClick={() => setTermsOpen(true)} className={navButton}>
+          <FileText className="h-4 w-4" aria-hidden="true" /> Privacidad
         </button>
         {user?.role === "moderator" && (
           <Link to="/moderador" className={navButton}>
@@ -128,6 +135,16 @@ function Navbar() {
             >
               <HelpCircle className="h-4 w-4" aria-hidden="true" /> ¿Cómo funciona?
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setTermsOpen(true);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <FileText className="h-4 w-4" aria-hidden="true" /> Privacidad
+            </button>
             {user?.role === "moderator" && (
               <Link
                 to="/moderador"
@@ -172,6 +189,8 @@ function Navbar() {
           </div>
         </>
       )}
+
+      <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
     </header>
   );
 }
