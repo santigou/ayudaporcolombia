@@ -9,12 +9,14 @@ import { PointByCode } from "./pages/PointByCode";
 import { useAuth } from "./context/AuthContext";
 import { useOnboarding } from "./context/OnboardingContext";
 import { useLoginModal } from "./context/LoginModalContext";
+import { useTheme } from "./hooks/useTheme";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 
 function Navbar() {
   const { user, logout } = useAuth();
   const { reset } = useOnboarding();
   const { open } = useLoginModal();
+  const { theme, toggle } = useTheme();
   // Menú hamburguesa abierto/cerrado (solo móvil). En desktop se ignora.
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -29,25 +31,29 @@ function Navbar() {
   }, [menuOpen]);
 
   return (
-    <header className="relative z-30 h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white">
-      <Link to="/" className="font-bold text-brand-dark">
+    <header className="relative z-30 h-14 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 bg-white dark:bg-gray-900">
+      <Link to="/" className="font-bold text-brand-dark dark:text-brand">
         Ayuda por Colombia
       </Link>
 
       {/* Nav de escritorio (≥md): horizontal, igual que antes. */}
       <nav className="hidden md:flex items-center gap-3 text-sm">
-        <button onClick={reset} className="text-gray-500 hover:text-brand-dark" title="Volver a ver el tutorial">
+        {/* Toggle claro/oscuro */}
+        <button onClick={toggle} aria-label="Cambiar tema" className="text-lg text-gray-500 hover:text-brand-dark dark:text-gray-400 dark:hover:text-brand">
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
+        <button onClick={reset} className="text-gray-500 hover:text-brand-dark dark:text-gray-400 dark:hover:text-brand" title="Volver a ver el tutorial">
           ¿Cómo funciona?
         </button>
         {user?.role === "moderator" && (
-          <Link to="/moderador" className="text-gray-600 hover:text-brand-dark">
+          <Link to="/moderador" className="text-gray-600 hover:text-brand-dark dark:text-gray-300 dark:hover:text-brand">
             Moderación
           </Link>
         )}
         {user ? (
           <>
-            <span className="text-gray-500 hidden sm:inline">{user.email}</span>
-            <button onClick={() => logout()} className="text-gray-600 hover:text-brand-dark">
+            <span className="text-gray-500 hidden sm:inline dark:text-gray-400">{user.email}</span>
+            <button onClick={() => logout()} className="text-gray-600 hover:text-brand-dark dark:text-gray-300 dark:hover:text-brand">
               Salir
             </button>
           </>
@@ -70,7 +76,7 @@ function Navbar() {
         onClick={() => setMenuOpen((v) => !v)}
         aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={menuOpen}
-        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
+        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
       >
         <span className="text-xl leading-none">{menuOpen ? "✕" : "☰"}</span>
       </button>
@@ -86,14 +92,14 @@ function Navbar() {
             onClick={() => setMenuOpen(false)}
             className="fixed inset-0 top-14 z-20 bg-black/20 md:hidden"
           />
-          <div className="absolute right-0 top-14 z-30 w-60 origin-top-right rounded-b-lg border border-t-0 border-gray-200 bg-white py-1 shadow-lg md:hidden">
+          <div className="absolute right-0 top-14 z-30 w-60 origin-top-right rounded-b-lg border border-t-0 border-gray-200 bg-white py-1 shadow-lg md:hidden dark:border-gray-700 dark:bg-gray-900">
             <button
               type="button"
               onClick={() => {
                 setMenuOpen(false);
                 reset();
               }}
-              className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+              className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               ¿Cómo funciona?
             </button>
@@ -101,15 +107,15 @@ function Navbar() {
               <Link
                 to="/moderador"
                 onClick={() => setMenuOpen(false)}
-                className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
               >
                 Moderación
               </Link>
             )}
-            <div className="my-1 border-t border-gray-100" />
+            <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
             {user ? (
               <>
-                <span className="block truncate px-4 py-1.5 text-xs text-gray-400" title={user.email}>
+                <span className="block truncate px-4 py-1.5 text-xs text-gray-400 dark:text-gray-500" title={user.email}>
                   {user.email}
                 </span>
                 <button
@@ -118,7 +124,7 @@ function Navbar() {
                     setMenuOpen(false);
                     logout();
                   }}
-                  className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  className="block w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   Salir
                 </button>
@@ -130,7 +136,7 @@ function Navbar() {
                   setMenuOpen(false);
                   open();
                 }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold text-brand-dark hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold text-brand-dark hover:bg-gray-50 dark:text-brand dark:hover:bg-gray-800"
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[12px] text-white">
                   →

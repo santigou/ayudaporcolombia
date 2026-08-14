@@ -46,7 +46,7 @@ export function HomeBottomSheet({ point, nearbyPoints, onClose, onPointUpdated }
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 flex h-[100dvh] flex-col bg-white md:hidden">
+    <div className="apc-dark fixed inset-0 z-40 flex h-[100dvh] flex-col bg-white md:hidden dark:bg-gray-900">
       {/* Header fijo: cierre + "tarjeta" del dispositivo */}
       <header className="relative shrink-0 border-b border-gray-200 px-4 pb-3 pt-3">
         <button

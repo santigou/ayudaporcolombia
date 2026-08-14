@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useOnboarding } from "../../context/OnboardingContext";
+import { useLoginModal } from "../../context/LoginModalContext";
 import { MEDELLIN, buildMockPoints, INITIAL_TUTORIAL_UPDATES, uid } from "./mockData";
 import { WelcomeStep, LocationStep, MapStep, PointStep, DoneStep } from "./steps";
 import type { Point, PointUpdateItem, UpdateKind } from "../../types";
@@ -12,6 +13,7 @@ const TOTAL_STEPS = 6;
 // es 100% local/mock. Termina con complete() (marca el flag en localStorage).
 export function OnboardingFlow() {
   const { complete } = useOnboarding();
+  const { open, openRegister } = useLoginModal();
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState<Point | null>(null);
   // Estado compartido entre los pasos 3 y 4 (pestaña activa + novedades simuladas).
@@ -54,7 +56,7 @@ export function OnboardingFlow() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900">
       {/* Barra de progreso (oculta en bienvenida y en el paso final). */}
       {step > 0 && step < 5 && (
         <div className="flex shrink-0 items-center gap-1.5 px-4 py-2">
@@ -131,7 +133,16 @@ export function OnboardingFlow() {
             onSkip={complete}
           />
         )}
-        {step === 5 && <DoneStep onComplete={complete} />}
+        {/* Último paso: los CTAs de cuenta abren el POPUP (no navegan a /login).
+            Tras abrirlo cerramos el onboarding (complete) para que el usuario
+            aterrice en la Home real con el modal de auth encima. */}
+        {step === 5 && (
+          <DoneStep
+            onComplete={complete}
+            onRegister={() => { complete(); openRegister(); }}
+            onLogin={() => { complete(); open(); }}
+          />
+        )}
       </div>
     </div>
   );

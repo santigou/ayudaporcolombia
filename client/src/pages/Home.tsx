@@ -206,7 +206,7 @@ export function Home() {
           />
         </div>
       </div>
-      <aside className="flex-1 md:flex-none md:w-96 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col overflow-hidden bg-white">
+      <aside className="apc-dark flex-1 md:flex-none md:w-96 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden bg-white dark:bg-gray-900">
         {sidePanel}
       </aside>
 

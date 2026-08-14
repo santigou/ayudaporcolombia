@@ -263,7 +263,7 @@ export function CreateWizard() {
   }
 
   if (authLoading) {
-    return <p className="p-6 text-sm text-gray-500">Cargando…</p>;
+    return <div className="apc-dark h-full"><p className="p-6 text-sm text-gray-500">Cargando…</p></div>;
   }
 
   if (created) {
@@ -278,7 +278,7 @@ export function CreateWizard() {
       }
     };
     return (
-      <div className="mx-auto max-w-md p-6">
+      <div className="apc-dark mx-auto max-w-md p-6">
         <h1 className="text-lg font-bold text-gray-900">¡Listo!</h1>
         <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <p>

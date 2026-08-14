@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" id="meta-theme-color" />
     <title>Ayuda por Colombia</title>
+    <script>
+      // Aplica el tema ANTES del primer paint para evitar destellos (FOUC).
+      // Lee la preferencia del usuario (localStorage); si no hay, sigue al sistema.
+      (function () {
+        try {
+          var t = localStorage.getItem("apc-theme");
+          if (t === "dark" || (t === null && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+            document.documentElement.classList.add("dark");
+            var m = document.getElementById("meta-theme-color");
+            if (m) m.setAttribute("content", "#0b1220");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -15,8 +15,9 @@ export function BottomSheet({ expanded, children }: BottomSheetProps) {
   return (
     <div
       className={[
-        "fixed inset-x-0 bottom-0 z-20 flex flex-col bg-white",
+        "apc-dark fixed inset-x-0 bottom-0 z-20 flex flex-col bg-white",
         "border-t border-gray-200 shadow-2xl rounded-t-2xl",
+        "dark:bg-gray-900 dark:border-gray-700",
         "transition-[max-height] duration-300 ease-out",
         "md:static md:inset-auto md:bottom-auto md:h-full md:w-96 md:max-w-[26rem]",
         "md:rounded-none md:shadow-none md:border-t-0 md:border-l",

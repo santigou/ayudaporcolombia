@@ -212,7 +212,7 @@ export function PanicButton({
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={submitting ? undefined : close}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900 dark:ring-1 dark:ring-gray-700" onClick={(e) => e.stopPropagation()}>
             {done ? (
               <SuccessView code={done.code} onClose={close} onDelete={handleDelete} canDelete={!!done.id} />
             ) : countdown != null ? (
@@ -262,7 +262,7 @@ function PanicForm({
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3">
       <div className="flex items-start justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-gray-100">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white">
             <SosIcon className="h-4 w-4" />
           </span>
@@ -272,17 +272,17 @@ function PanicForm({
           type="button"
           onClick={onCancel}
           aria-label="Cerrar"
-          className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
         >
           ✕
         </button>
       </div>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-gray-500 dark:text-gray-400">
         Se publicará un punto de <strong>necesito ayuda</strong> en tu ubicación actual. Es anónimo y no requiere datos
         de contacto.
       </p>
       <div>
-        <span className="text-sm font-medium text-gray-700">¿Qué necesitas?</span>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">¿Qué necesitas?</span>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {HELP_TYPES.map((t) => (
             <button
@@ -290,7 +290,7 @@ function PanicForm({
               type="button"
               onClick={() => onCategoryChange(t)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                category === t ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                category === t ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
               }`}
             >
               {t}
@@ -298,7 +298,7 @@ function PanicForm({
           ))}
         </div>
       </div>
-      <label className="text-sm font-medium text-gray-700">
+      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
         Nota (opcional)
         <textarea
           value={note}
@@ -306,7 +306,7 @@ function PanicForm({
           maxLength={300}
           rows={2}
           placeholder="Ej. necesitamos agua y atención médica…"
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
         />
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -314,7 +314,7 @@ function PanicForm({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+          className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
         >
           Cancelar
         </button>
@@ -333,25 +333,25 @@ function PanicForm({
 function CountdownView({ seconds, category, onCancel, submitting }: { seconds: number; category: string; onCancel: () => void; submitting: boolean }) {
   return (
     <div className="text-center">
-      <p className="text-sm font-semibold text-gray-900">¿Necesitas ayuda con {category}?</p>
+      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">¿Necesitas ayuda con {category}?</p>
       <div className="relative mx-auto my-4 flex h-20 w-20 items-center justify-center">
         <span className="absolute inset-0 animate-ping rounded-full bg-red-500 opacity-30" />
         <span className="flex h-20 w-20 items-center justify-center rounded-full bg-red-600 text-3xl font-extrabold text-white">
           {submitting ? "…" : seconds}
         </span>
       </div>
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-gray-600 dark:text-gray-300">
         Se publicará tu punto de ayuda <strong>automáticamente en {seconds} segundo{seconds === 1 ? "" : "s"}</strong>.
       </p>
       <button
         type="button"
         onClick={onCancel}
         disabled={submitting}
-        className="mt-4 w-full rounded-md bg-gray-200 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-300 disabled:opacity-60"
+        className="mt-4 w-full rounded-md bg-gray-200 px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
       >
         ✕ Cancelar (no publicar)
       </button>
-      <p className="mt-2 text-xs text-gray-400">
+      <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
         {submitting ? "Creando punto…" : "Si fue un error, pulsa Cancelar antes de que termine."}
       </p>
     </div>
@@ -362,17 +362,17 @@ function SuccessView({ code, onClose, onDelete, canDelete }: { code: string; onC
   const shareUrl = `${window.location.origin}/p/${code}`;
   return (
     <div className="text-center">
-      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-3xl">✓</div>
-      <h2 className="text-lg font-bold text-gray-900">¡Ayuda pedida!</h2>
-      <p className="mt-1 text-sm text-gray-600">
+      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-3xl dark:bg-emerald-900/40">✓</div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">¡Ayuda pedida!</h2>
+      <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
         Tu punto <strong className="font-mono">{code}</strong> ya está visible en el mapa. Compártelo si puedes:
       </p>
-      <code className="mt-3 block break-all rounded-md bg-gray-100 px-3 py-2 text-xs font-mono text-gray-700">{shareUrl}</code>
+      <code className="mt-3 block break-all rounded-md bg-gray-100 px-3 py-2 text-xs font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300">{shareUrl}</code>
       {canDelete && (
         <button
           type="button"
           onClick={onDelete}
-          className="mt-2 w-full rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+          className="mt-2 w-full rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
         >
           🗑 Eliminar este punto (creado por error)
         </button>
@@ -385,7 +385,7 @@ function SuccessView({ code, onClose, onDelete, canDelete }: { code: string; onC
         Cerrar
       </button>
       {canDelete && (
-        <p className="mt-2 text-xs text-gray-400">Si lo eliminaste por error, puedes volver a pedir ayuda cuando quieras.</p>
+        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">Si lo eliminaste por error, puedes volver a pedir ayuda cuando quieras.</p>
       )}
     </div>
   );

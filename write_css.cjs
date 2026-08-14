@@ -1,4 +1,5 @@
-@tailwind base;
+const fs = require("fs");
+const css = `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -30,9 +31,9 @@ body { background-color: #ffffff; color: #111827; }
 .dark .apc-dark .bg-gray-50 { background-color: #0b1220; }
 .dark .apc-dark .bg-gray-100 { background-color: #1f2937; }
 .dark .apc-dark .bg-gray-200 { background-color: #374151; }
-.dark .apc-dark .hover\:bg-gray-50:hover { background-color: #0b1220; }
-.dark .apc-dark .hover\:bg-gray-100:hover { background-color: #1f2937; }
-.dark .apc-dark .hover\:bg-gray-200:hover { background-color: #374151; }
+.dark .apc-dark .hover\\:bg-gray-50:hover { background-color: #0b1220; }
+.dark .apc-dark .hover\\:bg-gray-100:hover { background-color: #1f2937; }
+.dark .apc-dark .hover\\:bg-gray-200:hover { background-color: #374151; }
 .dark .apc-dark .border-gray-100 { border-color: #1f2937; }
 .dark .apc-dark .border-gray-200 { border-color: #374151; }
 .dark .apc-dark .border-gray-300 { border-color: #4b5563; }
@@ -95,5 +96,8 @@ body { background-color: #ffffff; color: #111827; }
 /* Boton de tipo seleccionado / chips: text-brand-dark a verde brillante. */
 .dark .apc-dark .text-brand-dark { color: #6ee7b7 !important; }
 .dark .apc-dark .border-brand { border-color: #10b981 !important; }
-.dark .apc-dark .bg-brand\/5 { background-color: rgba(16,185,129,0.12) !important; }
-.dark .apc-dark .bg-brand\/10 { background-color: rgba(16,185,129,0.18) !important; }
+.dark .apc-dark .bg-brand\\/5 { background-color: rgba(16,185,129,0.12) !important; }
+.dark .apc-dark .bg-brand\\/10 { background-color: rgba(16,185,129,0.18) !important; }
+`;
+fs.writeFileSync("client/src/index.css", css);
+console.log("CSS OK");

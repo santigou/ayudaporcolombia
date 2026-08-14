@@ -62,27 +62,27 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900 dark:ring-1 dark:ring-gray-700" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
-          <h2 className="text-lg font-bold text-gray-900">{isLogin ? "Iniciar sesión" : "Crear cuenta"}</h2>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{isLogin ? "Iniciar sesión" : "Crear cuenta"}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
           >
             ✕
           </button>
         </div>
-        {reason && <p className="mt-1 text-sm text-gray-500">{reason}</p>}
+        {reason && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{reason}</p>}
 
         {/* Pestañas: cambiar entre iniciar sesión y registrarse en el MISMO modal. */}
-        <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1">
+        <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
           <button
             type="button"
             onClick={() => switchMode("login")}
             className={`rounded-md py-1.5 text-sm font-medium transition ${
-              isLogin ? "bg-white text-brand-dark shadow-sm" : "text-gray-500 hover:text-gray-700"
+              isLogin ? "bg-white text-brand-dark shadow-sm dark:bg-gray-700 dark:text-brand" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             }`}
           >
             Iniciar sesión
@@ -91,7 +91,7 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
             type="button"
             onClick={() => switchMode("register")}
             className={`rounded-md py-1.5 text-sm font-medium transition ${
-              !isLogin ? "bg-white text-brand-dark shadow-sm" : "text-gray-500 hover:text-gray-700"
+              !isLogin ? "bg-white text-brand-dark shadow-sm dark:bg-gray-700 dark:text-brand" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             }`}
           >
             Crear cuenta
@@ -99,7 +99,7 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-          <label className="text-sm font-medium text-gray-700">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Correo
             <input
               required
@@ -107,10 +107,10 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
           </label>
-          <label className="text-sm font-medium text-gray-700">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Contraseña
             <input
               required
@@ -118,12 +118,12 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
           </label>
           {!isLogin && (
             <>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
                   type="checkbox"
                   checked={wantsModerator}
@@ -132,7 +132,7 @@ export function AuthModal({ reason, mode, onModeChange, onClose, onLogin, onRegi
                 Quiero postularme como moderador
               </label>
               {wantsModerator && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Tu solicitud quedará pendiente hasta que un moderador existente la apruebe.
                 </p>
               )}

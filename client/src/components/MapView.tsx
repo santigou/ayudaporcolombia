@@ -3,7 +3,78 @@ import maplibregl, { Map as MapLibreMap, Marker, type GeoJSONSource } from "mapl
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BBox, LocationDraft, Point, PointLocationEntry } from "../types";
 
+// El mapa usa SIEMPRE el estilo claro (positron), incluso en modo oscuro de la
+// app: es más fácil de entender que el dark y mantiene legibles las etiquetas y
+// las zonas verdes/agua. Para que no sea un blanco "fuerte"/plano, suavizamos
+// los grises muy claros del positron tirándolos a un gris medio más cálido tras
+// cargar el estilo (applySoftTint). Así se ve como un light "apagado".
 const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+  }
+  return [h * 360, s, l];
+}
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  h = ((h % 360) + 360) % 360 / 360;
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue = (t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [Math.round(hue(h + 1 / 3) * 255), Math.round(hue(h) * 255), Math.round(hue(h - 1 / 3) * 255)];
+}
+function parseColorStr(v: string): [number, number, number] | null {
+  let m = v.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  m = v.match(/hsla?\(\s*([\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/i);
+  if (m) return hslToRgb(Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100);
+  m = v.match(/^#([\da-f]{6})$/i);
+  if (m) { const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  m = v.match(/^#([\da-f]{3})$/i);
+  if (m) { const h = m[1]; return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)]; }
+  return null;
+}
+// Suaviza los grises del positron: los tonos muy claros (casi blanco) se bajan a
+// un gris medio cálido para reducir el deslumbramiento sin perder legibilidad.
+// Respeta el agua, las zonas verdes, los edificios y los textos (tienen color o
+// son grises ya oscuros).
+function applySoftTint(map: MapLibreMap) {
+  for (const layer of map.getStyle().layers ?? []) {
+    let prop: string | null = null;
+    if (layer.type === "background") prop = "background-color";
+    else if (layer.type === "fill") prop = "fill-color";
+    else continue;
+    try {
+      const v = map.getPaintProperty(layer.id, prop);
+      if (typeof v !== "string") continue;
+      const rgb = parseColorStr(v);
+      if (!rgb) continue;
+      const [, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+      if (s > 0.06) continue; // tiene color (agua/parques): respetar
+      if (l < 0.8) continue; // gris medio/oscuro: no tocar
+      // De casi-blanco → gris cálido suave (menos "fuerte" a la vista).
+      const tinted = hslToRgb(40, 0.06, 0.93);
+      map.setPaintProperty(layer.id, prop, `rgb(${tinted[0]},${tinted[1]},${tinted[2]})`);
+    } catch {
+      /* propiedad no admitida en esta capa: se ignora */
+    }
+  }
+}
 // Centro por defecto: Medellín. Se usa si el navegador no da/permite GPS.
 const DEFAULT_CENTER: [number, number] = [-75.5636, 6.2518];
 const DEFAULT_ZOOM = 11;
@@ -219,7 +290,11 @@ export function MapView({
 
     // Activa la geolocalización al cargar: pide permiso y, si se concede, centra
     // + muestra el punto azul. Si se rechaza, el mapa queda en Medellín (DEFAULT_CENTER).
-    map.on("load", () => geolocate.trigger());
+    // Además suavizamos los grises muy blancos del positron (ver applySoftTint).
+    map.on("load", () => {
+      try { applySoftTint(map); } catch { /* estilo no listo: se ignora */ }
+      geolocate.trigger();
+    });
 
     // Notifica el bbox actual al padre (primer carga y cada vez que termina de
     // mover/zoom). Con debounce para no inundar al servidor, y comparando con el
