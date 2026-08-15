@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Sparkles } from "lucide-react";
 import { MapView } from "../MapView";
 import { reverseGeocode, type AddressResult } from "../AddressSearch";
 import { api, ApiError, uploadFile } from "../../api/client";
@@ -16,6 +17,8 @@ import {
   type SupplyDraft,
 } from "../../types";
 import { BottomSheet } from "./BottomSheet";
+import { AiChat } from "./AiChat";
+import type { AiPointDraft } from "../../llm/prompt";
 import { ContactChips } from "./ContactChips";
 import { LocationAccordion } from "./LocationAccordion";
 import { PhotoInput } from "./PhotoInput";
@@ -42,6 +45,11 @@ export function CreateWizard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const loginModal = useLoginModal();
+  // ?chat=1 (ej. desde el menú hamburguesa) arranca directo en modo chat IA.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [mode, setMode] = useState<"manual" | "chat">(() =>
+    searchParams.get("chat") === "1" ? "chat" : "manual",
+  );
 
   const restored = useMemo(() => loadDraft(), []);
 
@@ -94,9 +102,25 @@ export function CreateWizard() {
   function closeLocation() {
     setOpenIndex(null);
   }
-  // Click en el mapa: marca la ubicación activa, geocodifica inverso (con race
-  // control) y despliega su caja para rellenar la dirección.
+  // Click en el mapa: si el CHAT pidió la ubicación, geocodifica y devuelve el
+  // control al chat; si no, marca la ubicación activa del wizard (flujo normal).
   async function handlePick(lat: number, lng: number) {
+    const chatCb = chatPickRef.current;
+    if (chatCb) {
+      chatPickRef.current = null;
+      setChatPicking(false);
+      setGeoLoading(true);
+      const r = await reverseGeocode(lat, lng);
+      setGeoLoading(false);
+      chatCb(
+        r ?? {
+          lat,
+          lng,
+          label: `Punto marcado en el mapa (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+        },
+      );
+      return;
+    }
     const i = activeIndex;
     updateLocation(i, { lat, lng });
     setGeoLoading(true);
@@ -129,6 +153,59 @@ export function CreateWizard() {
   }
   function removeContact(i: number) {
     setContacts((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // --- Modo chat con IA local (WebLLM) ---
+  // Entra al chat; si venimos de ?chat=1 limpiamos el parámetro para que un
+  // refresh posterior no reabra el chat si el usuario ya volvió al formulario.
+  function enterChat() {
+    if (searchParams.get("chat") === "1") setSearchParams({}, { replace: true });
+    setMode("chat");
+  }
+  function exitChat() {
+    setMode("manual");
+  }
+
+  // El chat pide que el usuario marque la ubicación tocando el mapa: guardamos
+  // el callback, colapsamos la hoja (peek) y el próximo tap del mapa lo llama
+  // con la ubicación geocodificada (el control vuelve al chat).
+  const chatPickRef = useRef<((r: AddressResult) => void) | null>(null);
+  const [chatPicking, setChatPicking] = useState(false);
+  function requestMapPick(onPicked: (r: AddressResult) => void) {
+    chatPickRef.current = onPicked;
+    setChatPicking(true);
+  }
+
+  // Aplica lo recopilado por el chat: rellena los pasos y salta al mapa (si no
+  // hay ubicación) o directo a la revisión final (si ya se marcó en el chat).
+  function applyAiDraft(
+    d: AiPointDraft,
+    extras: { location: AddressResult | null; photos: File[] },
+  ) {
+    setType(d.type);
+    setTitle(d.title);
+    setDescription(d.description);
+    setHelpType(d.helpType);
+    setSupplies(d.supplies);
+    setContacts(d.contacts);
+    setPhotos(extras.photos.slice(0, MAX_PHOTOS));
+    if (extras.location) {
+      updateLocation(0, {
+        lat: extras.location.lat,
+        lng: extras.location.lng,
+        addressText: extras.location.label,
+        city: extras.location.city ?? "",
+        neighborhood: extras.location.neighborhood ?? "",
+      });
+    }
+    setStepError(null);
+    setMode("manual");
+    // Con ubicación ya marcada todo está completo → revisión final; si no,
+    // al paso del mapa para que la marque (único dato que el chat no da).
+    setStep(extras.location ? STEPS.length - 1 : LOCATION_STEP);
+    setActiveIndex(0);
+    // Sin caja abierta la hoja colapsa (peek) y el mapa queda tocable.
+    setOpenIndex(null);
   }
 
   // Validación por paso (bloquea Continuar si no cumple).
@@ -304,14 +381,33 @@ export function CreateWizard() {
           onPickLocation={handlePick}
           points={[]}
         />
-        {step === LOCATION_STEP && openIndex === null && (
+        {mode === "manual" && step === LOCATION_STEP && openIndex === null && (
           <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1.5 text-xs text-gray-700 shadow md:hidden">
             Toca el mapa para marcar la ubicación
           </div>
         )}
+        {/* El chat de IA pidió la ubicación: hoja colapsada y el próximo tap
+            del mapa vuelve al chat con el punto geocodificado. */}
+        {chatPicking && (
+          <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white shadow">
+            {geoLoading ? "Identificando el lugar…" : "Toca el mapa donde lo viste por última vez"}
+          </div>
+        )}
       </div>
 
-      <BottomSheet expanded={expanded}>
+      <BottomSheet expanded={mode === "chat" ? !chatPicking : expanded}>
+        {mode === "chat" ? (
+          <AiChat
+            onApply={applyAiDraft}
+            onExit={exitChat}
+            requestMapPick={requestMapPick}
+            onClose={() => {
+              clearDraft();
+              navigate("/");
+            }}
+          />
+        ) : (
+        <>
         {/* Encabezado: título dinámico + progreso + cerrar */}
         <header className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
           <div>
@@ -373,6 +469,17 @@ export function CreateWizard() {
                   placeholder="Ej. Refugio disponible en el centro"
                 />
               </label>
+
+              {/* Alternativa al formulario: contarlo por chat con una IA que se
+                  ejecuta localmente en el dispositivo (privada, sin servidor). */}
+              <button
+                type="button"
+                onClick={enterChat}
+                className="flex items-center justify-center gap-2 rounded-md border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                Prefiero contarlo por chat (IA local)
+              </button>
             </div>
           )}
 
@@ -504,6 +611,8 @@ export function CreateWizard() {
             </button>
           )}
         </footer>
+        </>
+        )}
       </BottomSheet>
     </div>
   );

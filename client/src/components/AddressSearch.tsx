@@ -65,6 +65,35 @@ function reverseLabel(a: NominatimAddress | undefined, display_name: string): st
   return parts.length ? parts.join(", ") : display_name;
 }
 
+// Búsqueda de direcciones (geocoding) reutilizable: la usa el componente
+// AddressSearch y también el chat con IA local (tarjeta de ubicación).
+// Nominatim (OpenStreetMap), limitado a Colombia. Devuelve [] si falla.
+export async function searchAddress(query: string): Promise<AddressResult[]> {
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const params = new URLSearchParams({
+      format: "json",
+      limit: "5",
+      addressdetails: "1",
+      countrycodes: "co",
+      q,
+    });
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as NominatimResult[];
+    return data.map((item) => ({
+      lat: Number(item.lat),
+      lng: Number(item.lon),
+      label: item.display_name,
+      city: pickCity(item.address),
+      neighborhood: pickNeighborhood(item.address),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function AddressSearch({ onSelect }: AddressSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AddressResult[]>([]);
@@ -77,25 +106,8 @@ export function AddressSearch({ onSelect }: AddressSearchProps) {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        format: "json",
-        limit: "5",
-        addressdetails: "1",
-        countrycodes: "co",
-        q,
-      });
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as NominatimResult[];
-      setResults(
-        data.map((item) => ({
-          lat: Number(item.lat),
-          lng: Number(item.lon),
-          label: item.display_name,
-          city: pickCity(item.address),
-          neighborhood: pickNeighborhood(item.address),
-        })),
-      );
+      const data = await searchAddress(query);
+      setResults(data);
       if (data.length === 0) setError("No encontramos esa dirección en Colombia.");
     } catch {
       setError("No pudimos buscar la dirección. Intenta de nuevo.");
