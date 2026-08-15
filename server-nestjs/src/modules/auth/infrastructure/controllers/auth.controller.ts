@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Res, Req, UseGuards } from '@nestjs/common';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { Response } from 'express';
 import { z } from 'zod';
 import { AuthService } from '../../application/auth.service';
@@ -22,6 +23,7 @@ const COOKIE_OPTIONS = {
 };
 
 @Controller('api/auth')
+@ApiExcludeController() // API interna del SPA: fuera del Swagger público (docs de partners)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

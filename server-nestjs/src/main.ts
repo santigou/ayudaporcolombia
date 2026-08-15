@@ -3,6 +3,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as cookieParser from 'cookie-parser';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -76,6 +77,27 @@ async function bootstrap() {
       next();
     });
   }
+
+  // Swagger UI público en /api/docs: la referencia interactiva de la API para
+  // los developers de las apps partner (y para nosotros). Documenta los dos
+  // esquemas de auth: API key de partner (X-API-Key) y JWT de usuario/cookie.
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Ayuda por Colombia API')
+    .setDescription(
+      'API del hub de federación de puntos de ayuda. Partners: véase ' +
+        '`Partners (portal)` para registrar tu app, `Integraciones v1` para enviar/recibir puntos ' +
+        'y `Partners · Mapeos` para adaptar tu formato con expresiones JSONata. ' +
+        'Documentación narrativa: docs/obsidian/Integraciones partner.md y ' +
+        'docs/obsidian/Mapeos por expresiones (JSONata).md.',
+    )
+    .setVersion('1.0')
+    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header', description: 'API key de partner (apc_...)' }, 'ApiKeyAuth')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT de usuario (también vale la cookie `token`)' }, 'bearerJWT')
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: { persistAuthorization: true, tagsSorter: 'alpha', operationsSorter: 'alpha' },
+  });
 
   const port = configService.get<number>('PORT') || 4000;
   await app.listen(port);

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
+import { DomainEventBus } from '../../../shared/application/event-bus';
 import { isTransitionAllowed } from '../../points/application/point.service';
 
 function primaryLocation(locs: any[]) {
@@ -12,7 +13,10 @@ function primaryLocation(locs: any[]) {
 // solicitudes de moderador. Replica moderator.routes.ts del Express.
 @Injectable()
 export class ModerationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: DomainEventBus,
+  ) {}
 
   // Cola de offer_help pendientes de verificación, con datos para moderación.
   async getPendingPoints() {
@@ -52,6 +56,10 @@ export class ModerationService {
       this.prisma.verification.create({ data: { pointId: id, moderatorId, status: 'approved' } }),
       this.prisma.point.update({ where: { id }, data: { verificationStatus: 'approved', status: 'active' } }),
     ]);
+    // El punto pasa a ser visible: los partners deben recibirlo (fan-out). El
+    // dispatcher excluye a quien ya lo tenga (link), p. ej. al partner que
+    // originalmente lo envió y estaba esperando moderación.
+    this.eventBus.publish({ type: 'point.created', pointId: id });
     return updated;
   }
 
@@ -83,6 +91,8 @@ export class ModerationService {
       this.prisma.verification.create({ data: { pointId: id, moderatorId, status: 'approved' } }),
       this.prisma.point.update({ where: { id }, data: { verificationStatus: 'approved' } }),
     ]);
+    // Sello de verificación oficial: se difunde como update a quien ya lo tiene.
+    this.eventBus.publish({ type: 'point.updated', pointId: id });
     return verification;
   }
 
@@ -182,6 +192,8 @@ export class ModerationService {
         data: { status: 'approved', reviewedById: moderatorId, reviewedAt: new Date() },
       }),
     ]);
+    // Cambio de ciclo de vida aplicado vía solicitud: difundir a partners.
+    this.eventBus.publish({ type: 'point.updated', pointId: request.point.id });
     return { success: true };
   }
 

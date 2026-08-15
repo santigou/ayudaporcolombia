@@ -1,6 +1,7 @@
 ﻿import {
   Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, BadRequestException,
 } from '@nestjs/common';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import { PointService } from '../../application/point.service';
@@ -32,6 +33,7 @@ function parseJsonArray<T>(raw: unknown): T[] {
 const MAX_PHOTOS = 5;
 
 @Controller('api/points')
+@ApiExcludeController() // API interna del SPA: fuera del Swagger público (docs de partners)
 export class PointsController {
   private readonly allowedPhotoPrefixes: string[];
 

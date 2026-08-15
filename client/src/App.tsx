@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
-import { FileText, HelpCircle, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { BookOpen, ChevronDown, FileText, HelpCircle, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
 import { TermsModal } from "./components/TermsModal";
 import { Home } from "./pages/Home";
 import { CreatePoint } from "./pages/CreatePoint";
@@ -8,6 +8,9 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ModeratorDashboard } from "./pages/ModeratorDashboard";
 import { PointByCode } from "./pages/PointByCode";
+import { Partners } from "./pages/Partners";
+import { PartnersGuide } from "./pages/PartnersGuide";
+import { PartnerDashboard } from "./pages/PartnerDashboard";
 import { useAuth } from "./context/AuthContext";
 import { useOnboarding } from "./context/OnboardingContext";
 import { useLoginModal } from "./context/LoginModalContext";
@@ -30,6 +33,16 @@ function Navbar() {
   const navigate = useNavigate();
   // Menú hamburguesa abierto/cerrado (solo móvil). En desktop se ignora.
   const [menuOpen, setMenuOpen] = useState(false);
+  // Desplegable "Partners" del navbar de escritorio.
+  const [partnersOpen, setPartnersOpen] = useState(false);
+  useEffect(() => {
+    if (!partnersOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPartnersOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [partnersOpen]);
   // Modal "Tus datos y esta app" (términos y uso de datos). Disponible para
   // cualquiera, con o sin sesión.
   const [termsOpen, setTermsOpen] = useState(false);
@@ -71,6 +84,60 @@ function Navbar() {
         <button onClick={() => setTermsOpen(true)} className={navButton}>
           <FileText className="h-4 w-4" aria-hidden="true" /> Privacidad
         </button>
+        {/* Desplegable "Partners": portal (registro/gestión) y guía paso a paso.
+            Se cierra al hacer clic fuera (backdrop) o con Escape, como el menú móvil. */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setPartnersOpen((v) => !v)}
+            aria-expanded={partnersOpen}
+            aria-haspopup="menu"
+            className={navButton}
+          >
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Partners
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${partnersOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+          </button>
+          {partnersOpen && (
+            <>
+              <button
+                type="button"
+                aria-hidden="true"
+                tabIndex={-1}
+                onClick={() => setPartnersOpen(false)}
+                className="fixed inset-0 z-20 cursor-default"
+              />
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+              >
+                <Link
+                  to="/partners"
+                  role="menuitem"
+                  onClick={() => setPartnersOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  <span>
+                    Portal de partners
+                    <span className="block text-xs text-gray-400">Registra tu app · API keys · mapeos</span>
+                  </span>
+                </Link>
+                <Link
+                  to="/partners/guia"
+                  role="menuitem"
+                  onClick={() => setPartnersOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <BookOpen className="h-4 w-4" aria-hidden="true" />
+                  <span>
+                    Cómo integrarse (guía)
+                    <span className="block text-xs text-gray-400">Paso a paso con ejemplos de código</span>
+                  </span>
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
         {user?.role === "moderator" && (
           <Link to="/moderador" className={navButton}>
             <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Moderación
@@ -166,6 +233,20 @@ function Navbar() {
             >
               <FileText className="h-4 w-4" aria-hidden="true" /> Privacidad
             </button>
+            <Link
+              to="/partners"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Portal de partners
+            </Link>
+            <Link
+              to="/partners/guia"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <BookOpen className="h-4 w-4" aria-hidden="true" /> Cómo integrarse (guía)
+            </Link>
             {user?.role === "moderator" && (
               <Link
                 to="/moderador"
@@ -232,6 +313,9 @@ export function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Register />} />
           <Route path="/moderador" element={<ModeratorDashboard />} />
+          <Route path="/partners" element={<Partners />} />
+          <Route path="/partners/guia" element={<PartnersGuide />} />
+          <Route path="/partners/dashboard" element={<PartnerDashboard />} />
           <Route path="/p/:code" element={<PointByCode />} />
         </Routes>
       </div>
