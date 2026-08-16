@@ -25,6 +25,7 @@ import {
   extractContactsFromText,
   isDraftComplete,
   mergeDrafts,
+  inferHelpType,
   nextMissingField,
   nextQuestion,
   parseAgentObject,
@@ -110,6 +111,9 @@ export function useLocalChat() {
   const statusRef = useRef<LocalChatStatus>("idle");
   // Guarda de re-entrada (un solo intercambio a la vez).
   const generatingRef = useRef(false);
+  // Anti-bucle: «¿qué tipo de ayuda?» se pregunta UNA vez; si la respuesta no
+  // es del catálogo, queda «Otro» (válido) y se avanza al resumen.
+  const ayudaAskedRef = useRef(false);
 
   const webgpuSupported = useMemo(() => isWebGPUSupported(), []);
 
@@ -236,6 +240,17 @@ export function useLocalChat() {
         merged = sanitizeDraftAgainstText(merged, userTextRef.current);
         if (!merged.title && prev?.title) merged.title = prev.title;
         if (!merged.description && prev?.description) merged.description = prev.description;
+        // Un delta no puede VACIAR contactos ya recopilados (evita re-preguntar
+        // contacto tras respuestas que no lo mencionan).
+        if (merged.contacts.length === 0 && prev?.contacts.length) {
+          merged.contacts = prev.contacts;
+        }
+        // Tipo de ayuda determinista por keywords cuando el guion lo necesite
+        // y el modelo no lo haya fijado (respuestas fuera de catálogo).
+        if (merged.helpType === "Otro") {
+          const t = inferHelpType(userTextRef.current);
+          if (t) merged.helpType = t;
+        }
         draftRef.current = merged;
         setDraft(merged);
       };
@@ -325,11 +340,15 @@ export function useLocalChat() {
         }
       } else {
         // Guion: qué pasó → ubicación → contacto → tipo de ayuda → resumen.
-        const field = nextMissingField(d, hasLocation);
+        // «Tipo de ayuda» solo se pregunta una vez (anti-bucle con respuestas
+        // fuera de catálogo como «solo necesito que me ayuden»).
+        let field = nextMissingField(d, hasLocation);
+        if (field === "ayuda" && ayudaAskedRef.current) field = null;
         if (field && !(obj?.resumen && field === "ayuda")) {
           setMissing([field]);
           setAskLocation(field === "ubicacion");
           setConfirming(false);
+          if (field === "ayuda") ayudaAskedRef.current = true;
           bubble = nextQuestion(field, d);
         } else {
           setMissing([]);
@@ -447,6 +466,7 @@ export function useLocalChat() {
     setLocationCandidates(null);
     uiCtxRef.current = { hasLocation: false };
     userTextRef.current = "";
+    ayudaAskedRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

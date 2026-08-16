@@ -510,6 +510,27 @@ export function sanitizeDraftAgainstText(d: AiPointDraft, userText: string): AiP
   };
 }
 
+// ── Tipo de ayuda por keywords (determinista) ───────────────────────────────
+// Cuando la persona responde a «¿qué tipo de ayuda?» con algo que no es del
+// catálogo («solo necesito que me ayuden», «mascota perdida»), el guion no
+// puede quedarse en bucle: se infiere del texto si hay pista, y si no, queda
+// «Otro» (válido) y se avanza.
+const HELP_TYPE_KEYWORDS: Array<[HelpTypeOption, string[]]> = [
+  ["Médico", ["medic", "herid", "salud", "enferm", "ambulanc", "rescat", "atencion medica"]],
+  ["Refugio", ["refugio", "albergue", "alojamiento", "techo", "dormir", "hospedaje"]],
+  ["Alimentos", ["alimento", "comida", "mercado", "despensa", "almuerzo", "cena"]],
+  ["Agua", ["agua potable", "agua"]],
+];
+
+export function inferHelpType(text: string): HelpTypeOption | null {
+  const hay = normForMatch(text);
+  if (!hay) return null;
+  for (const [type, keys] of HELP_TYPE_KEYWORDS) {
+    if (keys.some((k) => hay.includes(k))) return type;
+  }
+  return null;
+}
+
 // ── Condensación determinista de texto repetitivo ───────────────────────────
 // El modelo a veces genera frases redundantes con palabras rastreables
 // («Beagle llamado Toby, un beagle… es un perro que es un beagle»): pasan la

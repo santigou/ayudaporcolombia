@@ -126,6 +126,8 @@ const EXPAND_STOP = new Set([
   "el", "la", "los", "las", "un", "una", "unos", "unas", "por", "en", "con",
   "para", "que", "y", "o", "se", "lo", "le", "es", "fue", "al", "a", "mi",
   "mis", "su", "sus", "hay", "esta", "estoy", "vivo", "perdi", "perdio",
+  // Verbos de contexto que suelen preceder un lugar («perdido en…»):
+  "perdido", "perdida", "ofrezco", "busco", "necesito", "quiero", "encontro",
 ]);
 
 function normTokensForSearch(s: string): string[] {
@@ -179,7 +181,9 @@ export function expandMention(rawText: string, lugar: string): string {
   if (!span) return lugar;
   let [start, end] = span;
   // Izquierda: conectores y sustantivos forman parte del nombre; artículos,
-  // preposiciones y verbos cortan (sin incluirse).
+  // preposiciones y verbos cortan (sin incluirse). Los GAPS («en», «a», «y»)
+  // se saltan si más atrás continúa un token del nombre: lugar «Medellín» en
+  // «casd de castilla en medellin» debe expandir a la frase completa.
   while (start > 0) {
     const prev = textTokens[start - 1];
     if (EXPAND_CONNECTORS.has(prev)) {
@@ -192,6 +196,17 @@ export function expandMention(rawText: string, lugar: string): string {
     if (isSignificant(prev) && !EXPAND_STOP.has(prev)) {
       start--;
       continue;
+    }
+    if (!isSignificant(prev)) {
+      // Gap: inclúyelo solo si detrás (saltando más gaps) sigue una palabra
+      // de contenido que sea parte del nombre.
+      let k = start - 1;
+      while (k > 0 && !isSignificant(textTokens[k - 1])) k--;
+      if (k > 0 && isSignificant(textTokens[k - 1]) && !EXPAND_STOP.has(textTokens[k - 1])) {
+        start = k - 1;
+        continue;
+      }
+      break;
     }
     break;
   }
