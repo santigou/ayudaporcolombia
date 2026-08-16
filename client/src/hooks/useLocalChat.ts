@@ -10,6 +10,8 @@ import { loadSavedModelId, saveModelId } from "../llm/models";
 import {
   searchAddress,
   expandMention,
+  mergeResults,
+  pairQueries,
   rankByQuery,
   similarQueries,
   type AddressResult,
@@ -286,33 +288,38 @@ export function useLocalChat() {
       }
       let bubble: string;
       if (obj?.lugar && !hasLocation) {
-        // La persona mencionó un lugar: geocodificar el SINTAGMA COMPLETO de
-        // su texto (ej. «casd de castilla en medellin») con degradación
-        // progresiva si no hay resultados: mención del modelo → consultas
-        // SIMILARES (sitio+ciudad, token más largo…). Nunca se fracasa a la
-        // primera; solo si todo falla se pregunta por barrio/comuna/ciudad.
+        // La persona mencionó un lugar. FASE 1: la frase completa de su texto
+        // (ej. «casd de castilla en medellin») + PARES clave (ej. «casd
+        // medellin»: Nominatim hace fuzzy casd→CAD y la frase larga devuelve
+        // 0) — todas se buscan y sus resultados se FUSIONAN y rankean juntos:
+        // si el POI exacto existe, aparece en la tarjeta aunque otra consulta
+        // también devuelva la comuna genérica. FASE 2 (solo si todo vacío):
+        // mención del modelo → consultas similares hasta el primer resultado.
         const full = expandMention(userTextRef.current, obj.lugar);
-        const attempts = [...new Set([full, obj.lugar, ...similarQueries(full)])].filter(
-          (q) => q.trim().length > 0,
-        );
-        let results: AddressResult[] = [];
-        let usedQuery = full;
-        for (const q of attempts) {
-          const r = await searchAddress(q);
-          if (r.length > 0) {
-            results = r;
-            usedQuery = q;
-            break;
+        const pairs = pairQueries(full);
+        const primary = [...new Set([full, ...pairs])];
+        let collected: AddressResult[] = [];
+        for (const q of primary) {
+          collected = mergeResults(collected, await searchAddress(q));
+        }
+        let ranked = rankByQuery(collected, full).slice(0, 5);
+        if (ranked.length === 0) {
+          for (const q of [...new Set([obj.lugar, ...similarQueries(full)])]) {
+            if (primary.includes(q)) continue;
+            const r = await searchAddress(q);
+            if (r.length > 0) {
+              ranked = rankByQuery(r, full).slice(0, 5);
+              break;
+            }
           }
         }
-        const ranked = rankByQuery(results, usedQuery);
         if (ranked.length > 0) {
           setLocationCandidates(ranked);
           setAskLocation(true);
           bubble =
             ranked.length === 1
-              ? `Encontré el lugar para «${usedQuery}»: confírmalo para marcarlo en el mapa.`
-              : `Encontré ${ranked.length} lugares para «${usedQuery}»: elige el correcto para marcarlo en el mapa.`;
+              ? `Encontré el lugar para «${full}»: confírmalo para marcarlo en el mapa.`
+              : `Encontré ${ranked.length} lugares para «${full}»: elige el correcto para marcarlo en el mapa.`;
         } else {
           bubble = placeNotFoundQuestion(full);
         }

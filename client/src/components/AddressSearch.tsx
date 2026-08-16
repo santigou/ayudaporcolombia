@@ -256,6 +256,40 @@ export function similarQueries(query: string): string[] {
   return [...new Set(candidates.map((q) => q.trim()).filter((q) => q.length >= 3))];
 }
 
+// PARES clave que Nominatim entiende mejor que la frase completa: la persona
+// probó «casd medellin» y SÍ encuentra el CAD (fuzzy casd→CAD), mientras que
+// «casd de castilla en medellin» devuelve 0. Se buscan en la fase 1 (junto con
+// la frase completa) y sus resultados se FUSIONAN antes de rankear: si el POI
+// exacto existe, aparece en la tarjeta aunque otra consulta también devuelva
+// la comuna genérica.
+export function pairQueries(query: string): string[] {
+  const sig = normTokensForSearch(query).filter(isSignificant);
+  if (sig.length < 2) return [];
+  const first = sig[0];
+  const last = sig[sig.length - 1];
+  const combos = [
+    first !== last ? `${first} ${last}` : "", // «casd medellin» (sitio + ciudad)
+    sig.slice(-2).join(" "), // «castilla medellin»
+    sig.slice(0, 2).join(" "), // «casd castilla»
+  ];
+  return [...new Set(combos.map((q) => q.trim()).filter((q) => q && q.length >= 3))];
+}
+
+// Fusiona listas de resultados sin duplicados (misma coords ~5 decimales).
+export function mergeResults(a: AddressResult[], b: AddressResult[]): AddressResult[] {
+  const key = (r: AddressResult) => `${r.lat.toFixed(5)},${r.lng.toFixed(5)}`;
+  const seen = new Set(a.map(key));
+  const out = [...a];
+  for (const r of b) {
+    const k = key(r);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
 export function AddressSearch({ onSelect }: AddressSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AddressResult[]>([]);
