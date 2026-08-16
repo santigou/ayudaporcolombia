@@ -71,6 +71,14 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-https://cdn.jffsolutions.com}
+      # Integraciones partner: cifra credenciales outbound de partners (AES-256-GCM).
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
+      INTEGRATION_WORKER_INTERVAL_MS: ${INTEGRATION_WORKER_INTERVAL_MS:-3000}
+      INTEGRATION_OUTBOUND_TIMEOUT_MS: ${INTEGRATION_OUTBOUND_TIMEOUT_MS:-10000}
+      INTEGRATION_MAX_ATTEMPTS: ${INTEGRATION_MAX_ATTEMPTS:-6}
+      # Mapeos declarativos JSONata (defaults razonables).
+      MAPPING_EVAL_TIMEOUT_MS: ${MAPPING_EVAL_TIMEOUT_MS:-2000}
+      MAPPING_MAX_INPUT_BYTES: ${MAPPING_MAX_INPUT_BYTES:-262144}
     # Puerto expuesto SOLO en localhost (127.0.0.1): útil para probar la API
     # directamente desde el host en local y en el servidor. No queda accesible
     # desde internet (el tunnel expone la app al público vía el `front`).

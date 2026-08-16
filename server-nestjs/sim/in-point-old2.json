@@ -1,0 +1,7 @@
+{
+  "id": "demo-003",
+  "titulo": "Punto con formato viejo otra vez (prueba de rollback)",
+  "desc": "Este payload usa el formato original para probar el rollback a v1.",
+  "origen": { "direccion": "Av 68 #40-10", "ciudad": "Bogota" },
+  "tel": "3015550000"
+}

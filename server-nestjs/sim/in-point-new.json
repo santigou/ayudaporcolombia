@@ -1,0 +1,7 @@
+{
+  "id": "demo-002",
+  "nombre": "Brigada médica zona 3",
+  "desc": "Brigada de salud gratuita con medicinas basicas y vacunacion.",
+  "origen": { "direccion": "Calle 45 #12-30", "ciudad": "Bogota" },
+  "tel": "3009998877"
+}

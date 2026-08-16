@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { ModerationService } from '../../application/moderation.service';
 import { AuthGuard } from '../../../../shared/infrastructure/guards/auth.guard';
 import { Roles, RequireAuth } from '../../../../shared/application/decorators/roles.decorator';
 import { AuthenticatedRequest } from '../../../../shared/infrastructure/middleware/auth.middleware';
 
 @Controller('api/moderator')
+@ApiExcludeController() // API interna del SPA: fuera del Swagger público (docs de partners)
 @UseGuards(AuthGuard)
 @RequireAuth()
 @Roles('moderator')

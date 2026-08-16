@@ -2,11 +2,14 @@ import { Injectable, NotFoundException, BadRequestException, ForbiddenException 
 import { ConfigService } from '@nestjs/config';
 import { UpdateKind } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/database/prisma.service';
+import { DomainEventBus } from '../../../shared/application/event-bus';
 import { generateUniqueCode } from '../../../shared/infrastructure/utils/code.util';
 import { signDeleteToken, verifyDeleteToken } from '../../../shared/infrastructure/utils/deleteToken.util';
 import { PointsGateway } from '../../realtime/points.gateway';
 
-function isPubliclyVisible(p: { type: string; status: string; verificationStatus: string }): boolean {
+// ¿Es visible en el listado público del mapa? Se comparte con el módulo de
+// integraciones (solo se difunden a partners los puntos ya públicos).
+export function isPubliclyVisible(p: { type: string; status: string; verificationStatus: string }): boolean {
   // Estados "muertos": nunca se muestran en el listado del mapa, sin importar el
   // tipo. (resolved sigue visible; cancelled/expired/rejected no).
   const deadStatuses = ['cancelled', 'expired', 'rejected'];
@@ -76,6 +79,7 @@ export class PointService {
     private readonly prisma: PrismaService,
     private readonly gateway: PointsGateway,
     private readonly config: ConfigService,
+    private readonly eventBus: DomainEventBus,
   ) {}
 
   async getPublicPoints(opts: { type?: string; minLat?: number; maxLat?: number; minLng?: number; maxLng?: number }) {
@@ -263,6 +267,9 @@ export class PointService {
         },
       }),
     ]);
+    // Cambio de ciclo de vida aplicado: los partners que ya tienen el punto
+    // deben enterarse (p. ej. resolved/cancelled) vía point_updated.
+    this.eventBus.publish({ type: 'point.updated', pointId: point.id });
     return { id: point.id, status: targetStatus };
   }
 
@@ -330,6 +337,10 @@ export class PointService {
         ...(data.photoUrls.length ? { attachments: { create: data.photoUrls.map((url) => ({ url, type: 'image' as const })) } } : {}),
       },
     });
+    // Notifica el punto nuevo (fan-out hacia apps partner). El dispatcher
+    // filtra: si aún no es visible (offer_help pendiente), el job quedará
+    // skipped y se re-enviará cuando la moderación lo apruebe.
+    this.eventBus.publish({ type: 'point.created', pointId: point.id });
     // Devolvemos un token de borrado stateless: permite al creador borrar el
     // punto inmediatamente (p. ej. un SOS creado por error) incluso si es anónimo
     // (sin sesión). El token NO se persiste: se deriva del id + secreto.

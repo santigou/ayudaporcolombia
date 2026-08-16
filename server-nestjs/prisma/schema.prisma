@@ -57,9 +57,9 @@ enum ValidationStatus {
   rejected
 }
 
-// Categoría (kind) de una novedad del timeline. Facilita la coordinación en el
+// CategorÃ­a (kind) de una novedad del timeline. Facilita la coordinaciÃ³n en el
 // chat en tiempo real: distingue un comentario normal de "estoy ayudando",
-// "terminamos", información importante o algo urgente. El default `message`
+// "terminamos", informaciÃ³n importante o algo urgente. El default `message`
 // mantiene las novedades existentes como comentarios normales.
 enum UpdateKind {
   message
@@ -130,6 +130,8 @@ model Point {
   attachments   Attachment[]
   statusRequests   PointStatusRequest[]
   statusHistory    PointStatusHistory[]
+  partnerLinks     PartnerPointLink[]
+  partnerSyncLogs  PartnerSyncLog[]
 
   @@index([type, status])
   @@index([verificationStatus])
@@ -261,7 +263,7 @@ model Attachment {
 // que NO es el creador ni moderador. El usuario propone un estado objetivo
 // (resolved/cancelled) + motivo; queda pendiente hasta que un moderador la aprueba
 // (aplica el cambio) o rechaza. Una PENDIENTE por (usuario, punto): el constraint
-// parcial UNIQUE se define en la migración (WHERE status = 'pending').
+// parcial UNIQUE se define en la migraciÃ³n (WHERE status = 'pending').
 model PointStatusRequest {
   id            String             @id @default(uuid()) @db.Uuid
   pointId       String             @db.Uuid
@@ -283,8 +285,8 @@ model PointStatusRequest {
 }
 
 // Historial de cambios de estado (ciclo de vida) de un Punto: una fila por cada
-// transición APLICADA (directa por creador/moderador, o por solicitud aprobada).
-// Registra de→a, quién la aplicó, el motivo y, si vino de una solicitud aprobada,
+// transiciÃ³n APLICADA (directa por creador/moderador, o por solicitud aprobada).
+// Registra deâ†’a, quiÃ©n la aplicÃ³, el motivo y, si vino de una solicitud aprobada,
 // el enlace a esa solicitud. Es la fuente del tab "Estado" del detalle.
 model PointStatusHistory {
   id            String     @id @default(uuid()) @db.Uuid
@@ -301,4 +303,167 @@ model PointStatusHistory {
 
   @@index([pointId, createdAt])
   @@index([actorId])
+}
+
+// ============================================================================
+// Integraciones con apps partner (federaciÃ³n de puntos de ayuda)
+//
+// Permite que otras apps de ayuda nos envÃ­en puntos (inbound, vÃ­a API key) y
+// que nosotros les enviemos los nuestros (outbound, estilo webhook), con
+// conversiÃ³n de modelos por partner (mappers) y sincronizaciÃ³n idempotente.
+// ============================================================================
+
+// CÃ³mo se autentica NUESTRO backend ante un partner cuando le enviamos puntos
+// (webhook outbound): API key estÃ¡tica o login user/password â†’ token Bearer.
+enum PartnerAuthType {
+  api_key
+  login
+}
+
+// DirecciÃ³n de un registro de sincronizaciÃ³n: inbound (partner â†’ nosotros,
+// vÃ­a POST /api/integrations/v1/points) o outbound (nosotros â†’ partner).
+enum SyncDirection {
+  inbound
+  outbound
+}
+
+// Evento que disparÃ³ la sincronizaciÃ³n de un punto.
+enum SyncEvent {
+  point_created
+  point_updated
+}
+
+// Estado de un job de sincronizaciÃ³n. pending/processing = en cola o en vuelo
+// (la cola es la propia tabla: job queue persistente en Postgres con reintentos
+// y backoff); delivered = entregado; failed = agotÃ³ los reintentos;
+// skipped = descartado sin reintento (p. ej. punto no visible o eco).
+enum SyncStatus {
+  pending
+  processing
+  delivered
+  failed
+  skipped
+}
+
+// Partner: otra app de ayuda federada con la nuestra.
+//  - `trusted`: si es true, los puntos que nos envÃ­a entran DIRECTO a
+//    activo/aprobado; si no, pasan por la cola de moderaciÃ³n como cualquier
+//    punto anÃ³nimo (polÃ­tica decidida por el admin al crear el partner).
+//  - inbound*: puede enviarnos puntos por API key.
+//  - outbound*/sendOn*: reciben nuestros puntos por webhook (broadcast).
+//  - Las credenciales outbound (*Enc) se guardan CIFRADAS (AES-256-GCM) con
+//    INTEGRATION_ENCRYPTION_KEY; nunca se devuelven en claro por la API.
+model Partner {
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique
+  name          String
+  contactEmail  String?
+  approvedAt    DateTime?
+  trusted       Boolean  @default(false)
+  inboundEnabled   Boolean @default(true)
+  outboundEnabled  Boolean @default(false)
+  sendOnCreated    Boolean @default(true)
+  sendOnUpdated    Boolean @default(true)
+  outboundUrl      String?
+  authType         PartnerAuthType @default(api_key)
+  outboundHeaderName      String?
+  outboundApiKeyValueEnc  String?
+  loginUrl                String?
+  loginEmailEnc           String?
+  loginPasswordEnc        String?
+  tokenJsonPath           String?
+  tokenHeader             String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  apiKeys   PartnerApiKey[]
+  links     PartnerPointLink[]
+  syncLogs  PartnerSyncLog[]
+  mappings  PartnerMapping[]
+
+  @@index([outboundEnabled])
+}
+
+// API key de un partner para llamarnos (inbound). Solo se guarda el hash
+// SHA-256 (nunca la clave en claro) + un prefijo para reconocerla en la UI.
+// La clave completa se muestra UNA sola vez al emitirla. `revokedAt` la desactiva.
+model PartnerApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  partnerId  String    @db.Uuid
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+}
+
+// VÃ­nculo bidireccional partner â†” punto: deduplica el inbound (upsert por
+// externalId del partner) y evita bucles en el fan-out (a un partner que ya
+// tiene el punto no se le re-envÃ­a como created; los updates excluyen al origen).
+model PartnerPointLink {
+  id         String   @id @default(uuid()) @db.Uuid
+  partnerId  String   @db.Uuid
+  pointId    String   @db.Uuid
+  externalId String
+  createdAt  DateTime @default(now())
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  point   Point   @relation(fields: [pointId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, externalId])
+  @@unique([partnerId, pointId])
+  @@index([pointId])
+}
+
+// Log append-only de sincronizaciÃ³n Y a la vez job queue del worker outbound:
+// cada fila es un intento de entrega con reintentos exponenciales (nextAttemptAt)
+// y observabilidad (httpStatus, lastError, deliveredAt). El FK al punto es
+// SetNull para que el historial sobreviva al borrado del punto.
+model PartnerSyncLog {
+  id            String        @id @default(uuid()) @db.Uuid
+  partnerId     String        @db.Uuid
+  pointId       String?       @db.Uuid
+  externalId    String?
+  direction     SyncDirection
+  event         SyncEvent
+  status        SyncStatus    @default(pending)
+  attempts      Int           @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?
+  httpStatus    Int?
+  deliveredAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  point   Point?  @relation(fields: [pointId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([partnerId, createdAt])
+  @@index([pointId])
+}
+
+// Mapeo declarativo por partner: define, con expresiones JSONata en las hojas del
+// JSON, cómo convertir entre el payload del partner y nuestro sobre canonico.
+// El partner lo autogestiona via API key (versionado + dry-run + rollback).
+// UNA version activa por (partnerId, direction): la que resuelve MapperRegistry.
+model PartnerMapping {
+  id         String         @id @default(uuid()) @db.Uuid
+  partnerId  String         @db.Uuid
+  direction  SyncDirection
+  version    Int
+  definition Json
+  isActive   Boolean        @default(false)
+  notes      String?
+  createdAt  DateTime       @default(now())
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, direction, version])
+  @@index([partnerId, direction, isActive])
 }

@@ -1,0 +1,15 @@
+{
+  "direction": "outbound",
+  "activate": true,
+  "notes": "v1 outbound: shape propio de App Demo",
+  "definition": {
+    "location": {
+      "origin": "$join($map(point.locations[type='origin'], function($l){ $l.address }), ',')",
+      "destination": "$join($map(point.locations[type='destination'], function($l){ $l.address }), ',')",
+      "city": "point.locations[0].city"
+    },
+    "description": "point.description",
+    "telefono": "point.contacts[0].value",
+    "esNuevo": "event = 'point_created' ? true : false"
+  }
+}

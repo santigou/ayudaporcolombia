@@ -2,6 +2,7 @@ import {
   Controller, Post, Put, Body, Param, Req,
   BadRequestException, NotFoundException,
 } from '@nestjs/common';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../shared/application/validators/validation.pipe';
@@ -16,6 +17,7 @@ const presignSchema = z.object({
 });
 
 @Controller('api/uploads')
+@ApiExcludeController() // API interna del SPA: fuera del Swagger público (docs de partners)
 export class UploadsController {
   private readonly uploadDir: string;
   private readonly isLocal: boolean;
