@@ -13,6 +13,7 @@ import {
   buildAgentSystemPrompt,
   buildExtractionPrompt,
   buildLugarSystemPrompt,
+  buildVerifierSystemPrompt,
   extractContactsFromText,
   isDraftComplete,
   mergeDrafts,
@@ -208,27 +209,25 @@ export function useLocalChat() {
           setDraft(draftRef.current);
         }
       }
-      // Fusiona los datos nuevos del modelo (conservando type/helpType si el
-      // JSON los omitió) y aplica la ANTI-FABRICACIÓN: título/descripción con
-      // palabras no rastreables al texto de la persona, contactos fabricados o
-      // suministros no mencionados se descartan (se restaura el valor previo
+      // Aplica un delta "datos" al acumulado: merge (conservando type/helpType
+      // que el JSON omitió) + ANTI-FABRICACIÓN contra el texto real de la
+      // persona (título/descripción no rastreables, contactos fabricados o
+      // suministros no mencionados se descartan; se restaura el valor previo
       // de título/descripción si existía).
-      if (obj?.datos) {
+      const applyDatos = (datos: AiPointDraft, sinType?: boolean, sinHelpType?: boolean) => {
         const prev = draftRef.current;
         let merged = prev
-          ? mergeDrafts(prev, obj.datos, {
-              keepPrevType: obj.sinType,
-              keepPrevHelpType: obj.sinHelpType,
-            })
-          : obj.datos;
+          ? mergeDrafts(prev, datos, { keepPrevType: sinType, keepPrevHelpType: sinHelpType })
+          : datos;
         merged = sanitizeDraftAgainstText(merged, userTextRef.current);
         if (!merged.title && prev?.title) merged.title = prev.title;
         if (!merged.description && prev?.description) merged.description = prev.description;
         draftRef.current = merged;
         setDraft(merged);
-      }
+      };
+      if (obj?.datos) applyDatos(obj.datos, obj.sinType, obj.sinHelpType);
       const hasLocation = uiCtxRef.current.hasLocation;
-      const d = draftRef.current;
+      let d = draftRef.current;
       // Pasada ENFOCADA de lugar: el guion necesita la ubicación y el objeto
       // principal no la trajo → antes de preguntar "¿dónde?", una mini-tarea
       // dedicada SOLO a detectar el lugar (fiable incluso en modelos chicos).
@@ -251,6 +250,27 @@ export function useLocalChat() {
           ).text,
         );
         if (focused?.lugar) obj = { ...obj, lugar: focused.lugar };
+      }
+      // VERIFICADOR (segunda opinión): si tras el pase principal (+ lugar
+      // enfocado) todavía falta algún campo —o el pase falló del todo—, otra
+      // llamada con framing de VERIFICACIÓN contra el borrador recupera lo
+      // omitido antes de preguntar algo que la persona ya respondió. Su salida
+      // pasa la misma anti-fabricación (applyDatos). Solo corre cuando hace
+      // falta: si nada falta, no se paga la latencia extra.
+      if (!obj || nextMissingField(draftRef.current, hasLocation) !== null) {
+        const verified = parseAgentObject(
+          (
+            await generate([
+              { role: "system", content: buildVerifierSystemPrompt(draftRef.current) },
+              ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
+            ])
+          ).text,
+        );
+        if (verified?.datos) applyDatos(verified.datos, verified.sinType, verified.sinHelpType);
+        if (verified?.lugar && !hasLocation && !obj?.lugar) {
+          obj = { ...obj, lugar: verified.lugar };
+        }
+        d = draftRef.current;
       }
       let bubble: string;
       if (obj?.lugar && !hasLocation) {

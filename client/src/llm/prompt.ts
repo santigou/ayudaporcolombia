@@ -223,6 +223,35 @@ export function buildLugarSystemPrompt(): string {
   ].join("\n");
 }
 
+// VERIFICADOR — segunda opinión con framing distinto (LLM-judge enfocado): se
+// le pasa el BORRADOR acumulado + la conversación y corrige/completa lo que el
+// pase principal omitió (el síntoma «ignora casos»). Generaliza la pasada
+// enfocada de lugar a todos los campos. Su salida pasa la misma
+// anti-fabricación: es el mismo modelo chico y también puede equivocarse.
+export function buildVerifierSystemPrompt(draft: AiPointDraft | null): string {
+  const draftJson = draft
+    ? JSON.stringify({
+        type: draft.type,
+        helpType: draft.helpType,
+        title: draft.title,
+        description: draft.description,
+        supplies: draft.supplies,
+        contacts: draft.contacts,
+      })
+    : "(vacío)";
+  return [
+    "Eres un verificador de datos. Comparas el BORRADOR con la conversación de la persona y respondes SOLO un JSON de una línea:",
+    '{"datos":{…},"lugar":"…"}',
+    "Reglas:",
+    "- Corrige o completa los campos del borrador que estén VACÍOS, incompletos o con errores, usando ÚNICAMENTE lo que la persona dijo (sus palabras exactas cuando sea posible).",
+    '- "lugar": el sitio que la persona mencionó (barrio, comuna, institución o ciudad), tal cual lo dijo.',
+    "- NO inventes contactos, teléfonos, emails ni URLs. NO conviertas un @handle en email.",
+    "- Si el borrador ya está completo y correcto según la conversación, responde {}.",
+    "",
+    `BORRADOR ACTUAL: ${draftJson}`,
+  ].join("\n");
+}
+
 // Parsea el objeto del agente: primer objeto balanceado con alguna clave
 // conocida. Tolerante a basura alrededor. null = no hubo JSON válido.
 export function parseAgentObject(text: string): AgentObject | null {
