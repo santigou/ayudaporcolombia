@@ -15,10 +15,10 @@ import {
   buildSystemPrompt,
   interpretTurn,
   isDraftComplete,
-  isLowQuality,
   mergeDrafts,
   parsePointDraft,
   stripMarkers,
+  turnCorrection,
   type AgentCall,
   type AiPointDraft,
   type MissingField,
@@ -219,6 +219,10 @@ export function useLocalChat() {
     try {
       // Historial para el LLM: system + últimos mensajes (sin el placeholder).
       const historyBase = messagesRef.current.slice(0, -1);
+      // Última respuesta visible del asistente (detecta repetición literal).
+      const prevAssistant = [...historyBase]
+        .reverse()
+        .find((m) => m.role === "assistant" && !m.hidden);
       const buildHistory = (): ChatCompletionMessageParam[] => [
         { role: "system", content: buildSystemPrompt() },
         ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
@@ -227,10 +231,10 @@ export function useLocalChat() {
         streamChat({
           messages: buildHistory(),
           temperature: 0.4,
-          maxTokens: 700,
+          maxTokens: 320,
           onDelta: onDelta2,
         });
-      let full = await streamIntoBubble((delta) => {
+      let gen = await streamIntoBubble((delta) => {
         commit((prev) => {
           const copy = [...prev];
           const last = copy.length - 1;
@@ -238,28 +242,31 @@ export function useLocalChat() {
           return copy;
         });
       });
-      // Respuesta sin texto útil NI tool calls (basura o nada): un reintento
-      // con corrección explícita del formato.
-      if (isLowQuality(full) && interpretTurn(full).length === 0) {
-        console.debug("[ai-chat] respuesta sin texto ni tools, reintentando. Crudo:", full);
+      // Quality gate: fuera de guion (truncada, markdown, larga, sin tool o
+      // repetida) → UNA regeneración con la corrección explícita inyectada.
+      const correction = turnCorrection(gen.text, {
+        finishReason: gen.finishReason,
+        prevAssistant: prevAssistant ? stripMarkers(prevAssistant.content) : undefined,
+      });
+      if (correction) {
+        console.debug("[ai-chat] respuesta fuera de guion, regenerando:", correction);
         commit((prev) => {
           const copy = [...prev];
           const last = copy.length - 1;
           if (last >= 0) copy[last] = { ...copy[last], content: "" };
           return copy;
         });
-        full = await streamChat({
+        gen = await streamChat({
           messages: [
             ...buildHistory(),
-            { role: "assistant", content: full || "(sin respuesta)" },
+            { role: "assistant", content: gen.text || "(sin respuesta)" },
             {
               role: "user",
-              content:
-                'Corrección: tu respuesta anterior no tuvo texto visible. Responde de nuevo: PRIMERO una frase breve y cálida en español (reconoce + UNA pregunta) y DESPUÉS, en la última línea, la llamada a herramienta {"tool":…}.',
+              content: `Corrección: ${correction} Responde de nuevo: 1-2 frases cortas y cálidas (tutea), UNA pregunta como máximo, texto plano, y termina con UNA herramienta {"tool":…} en la última línea.`,
             },
           ],
           temperature: 0.4,
-          maxTokens: 700,
+          maxTokens: 400,
           onDelta: (delta) => {
             commit((prev) => {
               const copy = [...prev];
@@ -270,6 +277,7 @@ export function useLocalChat() {
           },
         });
       }
+      const full = gen.text;
       // Fin de la generación: burbuja completa + tool calls interpretadas.
       const calls = interpretTurn(full);
       commit((prev) => {
@@ -309,24 +317,28 @@ export function useLocalChat() {
     setExtracting(true);
     try {
       let out = parsePointDraft(
-        await streamChat({
-          messages: [{ role: "system", content: buildExtractionPrompt(transcript) }],
-          temperature: 0.1,
-          maxTokens: 500,
-          onDelta: () => undefined,
-        }),
-      );
-      if (!out) {
-        out = parsePointDraft(
+        (
           await streamChat({
-            messages: [
-              { role: "system", content: buildExtractionPrompt(transcript) },
-              { role: "user", content: "Responde SOLO con el objeto JSON válido." },
-            ],
+            messages: [{ role: "system", content: buildExtractionPrompt(transcript) }],
             temperature: 0.1,
             maxTokens: 500,
             onDelta: () => undefined,
-          }),
+          })
+        ).text,
+      );
+      if (!out) {
+        out = parsePointDraft(
+          (
+            await streamChat({
+              messages: [
+                { role: "system", content: buildExtractionPrompt(transcript) },
+                { role: "user", content: "Responde SOLO con el objeto JSON válido." },
+              ],
+              temperature: 0.1,
+              maxTokens: 500,
+              onDelta: () => undefined,
+            })
+          ).text,
         );
       }
       if (out) {

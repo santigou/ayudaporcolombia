@@ -69,8 +69,15 @@ export interface StreamChatOptions {
   onDelta: (delta: string) => void;
 }
 
-// Genera una respuesta en streaming (token a token) y devuelve el texto final.
-export async function streamChat(opts: StreamChatOptions): Promise<string> {
+export interface StreamChatResult {
+  text: string;
+  // "stop" (natural) | "length" (cortado por max_tokens) | undefined.
+  finishReason?: string;
+}
+
+// Genera una respuesta en streaming (token a token) y devuelve el texto final
+// y por qué terminó la generación (para detectar respuestas truncadas).
+export async function streamChat(opts: StreamChatOptions): Promise<StreamChatResult> {
   if (!state.engine) throw new Error("El modelo aún no está cargado");
   const stream = await state.engine.chat.completions.create({
     stream: true,
@@ -79,14 +86,17 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
     max_tokens: opts.maxTokens ?? 400,
   });
   let full = "";
+  let finishReason: string | undefined;
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content ?? "";
+    const choice = chunk.choices[0];
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+    const delta = choice?.delta?.content ?? "";
     if (delta) {
       full += delta;
       opts.onDelta(delta);
     }
   }
-  return full;
+  return { text: full, finishReason };
 }
 
 // Detiene la generación en curso (el stream en curso termina de forma limpia

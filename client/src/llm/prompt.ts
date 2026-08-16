@@ -73,6 +73,7 @@ export function buildSystemPrompt(): string {
     "5. Acepta todo lo que quiera publicar; no juzgues ni des consejos. Usa SOLO datos que la persona dijo.",
     "6. Repasa la conversación antes de preguntar: NUNCA preguntes lo que ya te dijeron.",
     "7. Cierra CADA respuesta con UNA o DOS llamadas a herramienta, cada una en su propia línea, al final. Sin ellas la app no entiende tu turno.",
+    "8. No repitas textualmente una respuesta anterior: avanza el guion.",
     "",
     "HERRAMIENTAS:",
     '{"tool":"datos","p":{…}} — guarda lo NUEVO que dijo la persona. Campos de p: "type" ("need_help"/"offer_help"), "helpType" ("Refugio"/"Alimentos"/"Agua"/"Médico"/"Otro"), "title" (anuncio corto), "description" (detalles), "supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}], "contacts":[{"type":"whatsapp","value":"…"}] (tipos: phone/whatsapp/instagram/email/other). Envía SOLO los campos nuevos; no repitas todo.',
@@ -157,6 +158,52 @@ function draftHasContent(d: AiPointDraft): boolean {
     d.supplies.length > 0 ||
     d.contacts.length > 0
   );
+}
+
+// ── Quality gate del turno ───────────────────────────────────────────────────
+// Detecta respuestas fuera de guion de los modelos pequeños (los fallos vistos
+// con Qwen 1.5B: párrafos largos, varias preguntas, listas markdown, repetir
+// la respuesta anterior palabra por palabra, o no cerrar con ninguna tool).
+// Devuelve la CORRECCIÓN a inyectar para regenerar, o null si el turno es
+// válido. `prevAssistant` es el texto visible de la respuesta anterior (para
+// detectar la repetición literal).
+
+export function turnCorrection(
+  text: string,
+  opts: { finishReason?: string; prevAssistant?: string },
+): string | null {
+  // Cortada por max_tokens: el modelo divagó (la frase + tool caben en el
+  // presupuesto); se pide regenerar breve.
+  if (opts.finishReason === "length") {
+    return "Tu respuesta anterior quedó cortada por demasiado larga. Sé mucho más breve.";
+  }
+  // Sin texto visible NI tool calls: nada aprovechable.
+  if (isLowQuality(text) && interpretTurn(text).length === 0) {
+    return "Tu respuesta anterior no tuvo texto visible ni herramienta.";
+  }
+  const visible = stripMarkers(text);
+  // Markdown/listas: prohibidos por el guion.
+  if (
+    visible.includes("**") ||
+    /\n\s*[-*•]\s/.test(visible) ||
+    /^#{1,6}\s/m.test(visible)
+  ) {
+    return "Tu respuesta anterior usó listas o markdown. Contesta en texto plano.";
+  }
+  // Demasiado largo: el guion pide máximo 2 líneas cortas.
+  if (visible.length > 350) {
+    return "Tu respuesta anterior fue demasiado larga. Máximo 2 líneas cortas.";
+  }
+  // Repetición literal de la respuesta anterior (antes que "sin tool": el
+  // mensaje correctivo es más específico sobre qué corregir).
+  if (opts.prevAssistant && visible.trim() === opts.prevAssistant.trim() && visible.length > 0) {
+    return "No repitas textualmente tu respuesta anterior: pregunta algo nuevo o continúa el guion.";
+  }
+  // Sin tool call al final: la app no puede interpretar el turno.
+  if (interpretTurn(text).length === 0) {
+    return 'Tu respuesta anterior no terminó con una herramienta.';
+  }
+  return null;
 }
 
 // Todos los objetos JSON balanceados del texto (en orden) que sean tool calls
