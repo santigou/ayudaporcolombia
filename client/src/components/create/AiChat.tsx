@@ -18,9 +18,6 @@ import { findModelOption } from "../../llm/models";
 import {
   MISSING_FIELDS,
   MISSING_LABELS,
-  isLowQuality,
-  stripMarkers,
-  type AgentCall,
   type AiPointDraft,
   type MissingField,
 } from "../../llm/prompt";
@@ -161,25 +158,6 @@ function LoadingModel({
       )}
     </div>
   );
-}
-
-// Texto de respaldo cuando el modelo respondió SOLO con tool calls (sin frase
-// visible): la app ya ejecutó las tools (chips, mapa, tarjeta…), así que
-// derivamos una frase de la call principal para que la conversación siga
-// fluida. "Reintentar" queda disponible por si prefiere la voz del modelo.
-function derivedAssistantText(calls: AgentCall[] | undefined): string | null {
-  if (!calls || calls.length === 0) return null;
-  const pedir = calls.find((c) => c.tool === "pedir");
-  if (pedir && pedir.tool === "pedir") {
-    if (pedir.falta === "ubicacion")
-      return "Vamos a marcar el lugar: elige una opción aquí arriba o toca «Prefiero marcarlo en el mapa».";
-    return `Cuéntame ${MISSING_LABELS[pedir.falta]} para completar el punto.`;
-  }
-  if (calls.some((c) => c.tool === "buscar_lugar")) return "Buscando el lugar en el mapa…";
-  if (calls.some((c) => c.tool === "resumen"))
-    return "Este es el resumen de tu punto: revísalo en la tarjeta y pulsa «Publicar ahora» cuando todo esté bien.";
-  if (calls.some((c) => c.tool === "listo")) return "¡Listo! Publicando ahora…";
-  return "Ya lo tengo anotado. Cuéntame lo que falte.";
 }
 
 // Chips de progreso: qué ya se tiene (✓) y qué falta (○). Al tocar "ubicación"
@@ -669,8 +647,6 @@ export function AiChat({
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState<{ code: string; type: PointType } | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
-  // Guarda de auto-publicación: el turno "listo" publica una sola vez.
-  const autoPublishedRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -709,12 +685,17 @@ export function AiChat({
 
   const modelLabel = findModelOption(chat.modelId).label;
 
+  // Contexto UI para el guion del hook (la ubicación ya elegida o no).
+  function uiCtx() {
+    return { hasLocation: location !== null };
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const t = input.trim();
     if (!t) return;
     setInput("");
-    void chat.send(t);
+    void chat.send(t, uiCtx());
   }
 
   // Ubicación elegida (buscador, propuesta o mapa): se guarda, se cierra la
@@ -725,7 +706,9 @@ export function AiChat({
     setLocOpen(false);
     chat.clearLocationCandidates();
     onLocationPicked?.(r);
-    void chat.send(`Ya definí la ubicación: ${r.label}. Sigue con lo que falte.`);
+    void chat.send(`Ya definí la ubicación: ${r.label}. Sigue con lo que falte.`, {
+      hasLocation: true,
+    });
   }
 
   function handleFiles(files: FileList | null) {
@@ -737,12 +720,6 @@ export function AiChat({
       ),
     );
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  // Reenvía el último mensaje del usuario (cuando el modelo no contestó nada).
-  function retryLast() {
-    const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
-    if (lastUser) void chat.send(lastUser.content);
   }
 
   // Valida y publica el punto directamente desde el chat: fotos → presign+PUT,
@@ -798,20 +775,9 @@ export function AiChat({
     }
   }
 
-  // Turno "listo" (la persona ya aprobó el resumen): publica automáticamente si
-  // todo está completo y válido; si falta algo, la tarjeta con su botón indica
-  // qué y no se publica nada sin la ubicación.
-  useEffect(() => {
-    if (published || publishing || autoPublishedRef.current) return;
-    if (chat.turnAction !== "listo" || !chat.extracted) return;
-    const d = chat.extracted;
-    const complete =
-      d.title.trim().length >= 3 && d.description.trim().length >= 10 && d.contacts.length > 0;
-    if (!complete || !location) return;
-    if (d.type === "offer_help" && !user) return; // el botón pedirá sesión
-    autoPublishedRef.current = true;
-    void handlePublish();
-  });
+  // Publicación: SOLO con el botón "Publicar ahora" o el atajo "✓ Sí,
+  // publícalo" (determinista, con validaciones en handlePublish). El modelo
+  // nunca dispara la publicación.
 
   // Éxito: pantalla con el código verificable y el link para compartir.
   if (published) {
@@ -828,7 +794,6 @@ export function AiChat({
           onSeeMap={onClose}
           onAnother={() => {
             setPublished(null);
-            autoPublishedRef.current = false;
             setDraft(null);
             setLocation(null);
             setPhotos([]);
@@ -966,23 +931,11 @@ export function AiChat({
           {chat.messages
             .filter((m) => !m.hidden)
             .map((m, i) => {
-              const isUser = m.role === "user";
-              // Oculta tool calls/JSON de control; solo la frase visible.
-              const text = isUser ? m.content : stripMarkers(m.content);
-              // Mientras genera y aún no hay texto útil: se omite (indicador aparte).
-              if (!isUser && m.streaming && isLowQuality(m.content)) return null;
-              // Terminó sin frase visible pero con tool calls ejecutadas: burbuja
-              // con texto derivado de la acción (+ Reintentar). Sin calls: respaldo.
-              const useless = !isUser && !m.streaming && isLowQuality(m.content);
+              // Placeholder vacío mientras se prepara la respuesta: se omite
+              // (el indicador "● ● ●" ya avisa que se está escribiendo).
+              if (m.role === "assistant" && m.streaming && !m.content) return null;
               return (
-                <MessageBubble
-                  key={i}
-                  role={m.role}
-                  text={useless ? "" : text}
-                  streaming={m.streaming}
-                  fallbackText={useless ? derivedAssistantText(m.calls) : null}
-                  onRetry={useless ? retryLast : undefined}
-                />
+                <MessageBubble key={i} role={m.role} text={m.content} streaming={m.streaming} />
               );
             })}
           {generating && (

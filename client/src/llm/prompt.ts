@@ -160,50 +160,127 @@ function draftHasContent(d: AiPointDraft): boolean {
   );
 }
 
-// ── Quality gate del turno ───────────────────────────────────────────────────
-// Detecta respuestas fuera de guion de los modelos pequeños (los fallos vistos
-// con Qwen 1.5B: párrafos largos, varias preguntas, listas markdown, repetir
-// la respuesta anterior palabra por palabra, o no cerrar con ninguna tool).
-// Devuelve la CORRECCIÓN a inyectar para regenerar, o null si el turno es
-// válido. `prevAssistant` es el texto visible de la respuesta anterior (para
-// detectar la repetición literal).
+// ── Agente determinista: el modelo SOLO emite JSON ──────────────────────────
+// Lecciones de las pruebas con Qwen 2.5 1.5B: pedirle a la vez empatía +
+// brevedad + JSON en el mismo turno no funciona (párrafos, listas, repeticiones,
+// cero tools, y el reintento correctivo tampoco corregía). Nuevo reparto:
+//   - El MODELO solo entiende y estructura: responde EXCLUSIVAMENTE un objeto
+//     JSON plano de una línea (esto sí lo cumplen los modelos chicos).
+//   - La APP escribe las preguntas (guion fijo, cálido, una a la vez), decide
+//     el siguiente paso, geocodifica, arma el resumen y publica.
+// El chat no puede salirse del guion porque el modelo nunca escribe prosa.
 
-export function turnCorrection(
-  text: string,
-  opts: { finishReason?: string; prevAssistant?: string },
-): string | null {
-  // Cortada por max_tokens: el modelo divagó (la frase + tool caben en el
-  // presupuesto); se pide regenerar breve.
-  if (opts.finishReason === "length") {
-    return "Tu respuesta anterior quedó cortada por demasiado larga. Sé mucho más breve.";
-  }
-  // Sin texto visible NI tool calls: nada aprovechable.
-  if (isLowQuality(text) && interpretTurn(text).length === 0) {
-    return "Tu respuesta anterior no tuvo texto visible ni herramienta.";
-  }
-  const visible = stripMarkers(text);
-  // Markdown/listas: prohibidos por el guion.
-  if (
-    visible.includes("**") ||
-    /\n\s*[-*•]\s/.test(visible) ||
-    /^#{1,6}\s/m.test(visible)
-  ) {
-    return "Tu respuesta anterior usó listas o markdown. Contesta en texto plano.";
-  }
-  // Demasiado largo: el guion pide máximo 2 líneas cortas.
-  if (visible.length > 350) {
-    return "Tu respuesta anterior fue demasiado larga. Máximo 2 líneas cortas.";
-  }
-  // Repetición literal de la respuesta anterior (antes que "sin tool": el
-  // mensaje correctivo es más específico sobre qué corregir).
-  if (opts.prevAssistant && visible.trim() === opts.prevAssistant.trim() && visible.length > 0) {
-    return "No repitas textualmente tu respuesta anterior: pregunta algo nuevo o continúa el guion.";
-  }
-  // Sin tool call al final: la app no puede interpretar el turno.
-  if (interpretTurn(text).length === 0) {
-    return 'Tu respuesta anterior no terminó con una herramienta.';
+export interface AgentObject {
+  // Delta de campos nuevos (ya saneado; solo claves que trajo contenido).
+  datos?: AiPointDraft;
+  // El JSON de "datos" no traía "type"/"helpType" → al fusionar se conserva el
+  // valor anterior (evita flips offer→need por defaults del saneado).
+  sinType?: boolean;
+  sinHelpType?: boolean;
+  // Consulta para geocodificar (sitio que mencionó la persona).
+  lugar?: string;
+  // (informativo) dato que el modelo cree que falta; la app igualmente deduce
+  // el siguiente paso con su guion determinista.
+  pedir?: MissingField;
+  // El modelo cree que ya se puede publicar.
+  resumen?: boolean;
+}
+
+export function buildAgentSystemPrompt(): string {
+  return [
+    'Eres el motor de datos del mapa de emergencias por sismo "Ayuda por Colombia". Lees la conversación entre una persona y la app y respondes SOLO con UN objeto JSON de una sola línea. Nada de texto fuera del JSON, sin markdown.',
+    "",
+    "Forma (todas las claves opcionales):",
+    '{"datos":{"type":"need_help|offer_help","helpType":"Refugio|Alimentos|Agua|Médico|Otro","title":"anuncio corto","description":"detalles","supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}],"contacts":[{"type":"phone|whatsapp|instagram|email|other","value":"…"}]},"lugar":"sitio que mencionó","pedir":"que_paso|ayuda|ubicacion|contacto|fotos","resumen":true}',
+    "",
+    "Reglas:",
+    '- "datos": SOLO campos con información que la persona haya dado (su último mensaje o algo aún no anotado). "title": anuncio autónomo, máximo 100 caracteres. "description": todos los detalles útiles. Nunca inventes: usa únicamente lo que la persona dijo.',
+    '- "lugar": si la persona mencionó dónde (aunque sea vago: barrio, comuna, ciudad), ponlo tal cual lo dijo.',
+    '- "type": "offer_help" SOLO si la persona OFRECE ayuda; si busca o necesita, "need_help".',
+    '- "resumen": true cuando con lo anotado ya se puede publicar (hay título, descripción y contacto).',
+    "- Si la persona aprueba o corrige el resumen, actualiza \"datos\" con los cambios.",
+    "",
+    "Responde solo con el JSON:",
+  ].join("\n");
+}
+
+// Parsea el objeto del agente: primer objeto balanceado con alguna clave
+// conocida. Tolerante a basura alrededor. null = no hubo JSON válido.
+export function parseAgentObject(text: string): AgentObject | null {
+  for (const s of balancedObjects(text)) {
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (!["datos", "lugar", "pedir", "resumen"].some((k) => k in raw)) continue;
+    const out: AgentObject = {};
+    const datosRaw = raw.datos;
+    if (datosRaw && typeof datosRaw === "object") {
+      const d = sanitizePartialDraft(datosRaw);
+      if (d && draftHasContent(d)) {
+        out.datos = d;
+        const o = datosRaw as Record<string, unknown>;
+        out.sinType = !("type" in o);
+        out.sinHelpType = !("helpType" in o);
+      }
+    }
+    if (typeof raw.lugar === "string" && raw.lugar.trim()) {
+      out.lugar = raw.lugar.replace(/\s+/g, " ").trim().slice(0, 200);
+    }
+    if (
+      typeof raw.pedir === "string" &&
+      (MISSING_FIELDS as readonly string[]).includes(raw.pedir)
+    ) {
+      out.pedir = raw.pedir as MissingField;
+    }
+    if (raw.resumen === true) out.resumen = true;
+    return out;
   }
   return null;
+}
+
+// ── Guion determinista de la app ────────────────────────────────────────────
+// Orden de la entrevista y preguntas escritas por la app (no por el modelo).
+
+export type ScriptField = Exclude<MissingField, "fotos">;
+
+// Siguiente dato que falta según el guion: qué pasó → ubicación → contacto →
+// tipo de ayuda. null = ya se puede resumir.
+export function nextMissingField(
+  d: AiPointDraft | null,
+  hasLocation: boolean,
+): ScriptField | null {
+  if (!d || d.title.trim().length < 3 || d.description.trim().length < 10) return "que_paso";
+  if (!hasLocation) return "ubicacion";
+  if (d.contacts.length === 0) return "contacto";
+  if (d.helpType === "Otro" && d.supplies.length === 0) return "ayuda";
+  return null;
+}
+
+// Pregunta visible (la escribe la app: cálida, breve, UNA sola).
+export function nextQuestion(field: ScriptField, d: AiPointDraft | null): string {
+  switch (field) {
+    case "que_paso":
+      return d && d.title.trim().length >= 3
+        ? "Anoté lo principal. ¿Algún detalle importante que falte en la descripción?"
+        : "Cuéntame con tus palabras qué pasó o qué ofreces: yo lo convierto en el anuncio del mapa.";
+    case "ubicacion":
+      return "¿Dónde? Escribe el barrio o el lugar y lo ubico en el mapa.";
+    case "contacto":
+      return "¿Cómo te contactamos si alguien ve tu punto? Teléfono o WhatsApp, por ejemplo.";
+    case "ayuda":
+      return "¿Qué tipo de ayuda es: refugio, alimentos, agua, médico u otra?";
+  }
+}
+
+export function summaryQuestion(): string {
+  return "¡Ya tengo todo! Revisa el resumen: si está bien, pulsa «Publicar ahora».";
+}
+
+export function placeNotFoundQuestion(q: string): string {
+  return `No encontré «${q}» en el mapa. ¿En qué barrio, comuna o ciudad está?`;
 }
 
 // Todos los objetos JSON balanceados del texto (en orden) que sean tool calls
@@ -287,12 +364,16 @@ export function parseTurnState(text: string): TurnState | null {
 }
 
 // Fusiona el borrador de un turno con el acumulado: cada campo del turno nuevo
-// solo pisa si trae valor (el prompt pide repetir "p" completo, pero por si el
-// modelo lo corta, lo seguro es no perder lo ya recopilado).
-export function mergeDrafts(prev: AiPointDraft, next: AiPointDraft): AiPointDraft {
+// solo pisa si el JSON lo trajo explícitamente (los flags sinType/sinHelpType
+// evitan flips por los defaults del saneado cuando el modelo los omite).
+export function mergeDrafts(
+  prev: AiPointDraft,
+  next: AiPointDraft,
+  flags?: { keepPrevType?: boolean; keepPrevHelpType?: boolean },
+): AiPointDraft {
   return {
-    type: next.type,
-    helpType: next.helpType,
+    type: flags?.keepPrevType ? prev.type : next.type,
+    helpType: flags?.keepPrevHelpType ? prev.helpType : next.helpType,
     title: next.title || prev.title,
     description: next.description || prev.description,
     locationQuery: next.locationQuery || prev.locationQuery,

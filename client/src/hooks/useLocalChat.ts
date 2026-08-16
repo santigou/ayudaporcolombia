@@ -10,19 +10,19 @@ import { loadSavedModelId, saveModelId } from "../llm/models";
 import { searchAddress, type AddressResult } from "../components/AddressSearch";
 import {
   AI_GREETING,
-  MISSING_LABELS,
+  buildAgentSystemPrompt,
   buildExtractionPrompt,
-  buildSystemPrompt,
-  interpretTurn,
   isDraftComplete,
   mergeDrafts,
+  nextMissingField,
+  nextQuestion,
+  parseAgentObject,
   parsePointDraft,
+  placeNotFoundQuestion,
   stripMarkers,
-  turnCorrection,
-  type AgentCall,
+  summaryQuestion,
   type AiPointDraft,
   type MissingField,
-  type TurnAction,
 } from "../llm/prompt";
 
 export type ChatRole = "user" | "assistant";
@@ -30,14 +30,17 @@ export type ChatRole = "user" | "assistant";
 export interface ChatMessage {
   role: ChatRole;
   content: string;
-  // true mientras el modelo está generando esta respuesta (streaming).
+  // true mientras se prepara esta respuesta (indicador de escritura).
   streaming?: boolean;
   // Notas de sistema / resultados de tools: van al CONTEXTO del LLM pero no se
   // pintan como burbujas ([sistema: …]).
   hidden?: boolean;
-  // Tool calls interpretadas de esta respuesta del asistente (para render y
-  // texto derivado si no hubo frase visible).
-  calls?: AgentCall[];
+}
+
+// Contexto de UI que la persona ve (la app lo usa para decidir el guion; el
+// modelo no lo necesita porque las preguntas las escribe la app).
+export interface ChatUiContext {
+  hasLocation: boolean;
 }
 
 export type LocalChatStatus =
@@ -71,11 +74,10 @@ export function useLocalChat() {
   // Señales para la UI:
   const [askLocation, setAskLocation] = useState(false); // pedir la ubicación
   const [confirming, setConfirming] = useState(false); // resumen en pantalla
-  const [turnAction, setTurnAction] = useState<TurnAction>("chat"); // "listo" = aprobado
   const [missing, setMissing] = useState<MissingField[]>([]); // campo pendiente
   const [extracting, setExtracting] = useState(false); // 2ª llamada de respaldo
-  // Candidatos del geocoder tras una call "buscar_lugar": la UI los muestra
-  // para que la persona elija (nunca se marca solo).
+  // Candidatos del geocoder: la UI los muestra para que la persona elija
+  // (nunca se marca solo).
   const [locationCandidates, setLocationCandidates] = useState<AddressResult[] | null>(null);
 
   // Espejo de messages SIN dependencia del render: las auto-continuaciones
@@ -85,9 +87,8 @@ export function useLocalChat() {
   // closure del primer render (status "idle") y rechazarían todo envío. Con el
   // ref el guard siempre ve el status real.
   const statusRef = useRef<LocalChatStatus>("idle");
-  // Guarda de re-entrada y de auto-continuación (máx. 1 por intercambio).
+  // Guarda de re-entrada (un solo intercambio a la vez).
   const generatingRef = useRef(false);
-  const autoContinuedRef = useRef(false);
 
   const webgpuSupported = useMemo(() => isWebGPUSupported(), []);
 
@@ -137,77 +138,12 @@ export function useLocalChat() {
     commit((prev) => [...prev, { role: "user", content: note, hidden: true }]);
   }
 
-  // Auto-continuación (máx. 1 por intercambio): el modelo reacciona al
-  // resultado de una tool sin que la persona escriba de nuevo.
-  async function autoContinue(note: string) {
-    if (generatingRef.current || autoContinuedRef.current) return;
-    autoContinuedRef.current = true;
-    await runTurn(note, true);
-  }
+  // Contexto de UI del envío en curso (la app decide el guion con él).
+  const uiCtxRef = useRef<ChatUiContext>({ hasLocation: false });
 
-  // Ejecuta en orden las tool calls del turno. El modelo nunca publica:
-  // "listo" solo marca aprobación; publicar es exclusivo de la UI.
-  async function executeCalls(calls: AgentCall[]) {
-    for (const call of calls) {
-      switch (call.tool) {
-        case "datos": {
-          draftRef.current = draftRef.current
-            ? mergeDrafts(draftRef.current, call.p)
-            : call.p;
-          setDraft(draftRef.current);
-          break;
-        }
-        case "pedir": {
-          setMissing([call.falta]);
-          if (call.falta === "ubicacion") setAskLocation(true);
-          break;
-        }
-        case "buscar_lugar": {
-          const results = await searchAddress(call.q);
-          if (results.length > 0) {
-            setLocationCandidates(results);
-            appendHiddenNote(
-              `[sistema: buscar_lugar "${call.q}" devolvió ${results.length} resultado(s); la persona elegirá uno en la app y te avisará. Pregunta otra cosa mientras tanto.]`,
-            );
-          } else {
-            await autoContinue(
-              `[sistema: buscar_lugar no encontró "${call.q}". Pide un barrio, comuna o ciudad de Colombia y vuelve a intentarlo.]`,
-            );
-          }
-          break;
-        }
-        case "resumen": {
-          if (isDraftComplete(draftRef.current)) {
-            setExtracted(draftRef.current);
-            setConfirming(true);
-          } else {
-            const tiene = draftRef.current;
-            const falta: string[] = [];
-            if (!tiene || tiene.title.trim().length < 3 || tiene.description.trim().length < 10)
-              falta.push(MISSING_LABELS.que_paso);
-            if (!tiene || tiene.contacts.length === 0) falta.push(MISSING_LABELS.contacto);
-            await autoContinue(
-              `[sistema: todavía falta ${falta.join(" y ")}. Pídeselo a la persona antes del resumen.]`,
-            );
-          }
-          break;
-        }
-        case "listo": {
-          if (isDraftComplete(draftRef.current)) {
-            setConfirming(false);
-            setTurnAction("listo");
-          } else {
-            await autoContinue(
-              "[sistema: falta información para publicar. Pide lo que falte y luego pide el resumen.]",
-            );
-          }
-          break;
-        }
-      }
-    }
-  }
-  // Un intercambio completo: mensaje (visible u oculto) → streaming →
-  // interpretación del turno → ejecución de tools.
+  // Un intercambio: mensaje (visible u oculto) → el modelo estructura en JSON
+  // (nunca escribe prosa visible) → la app decide la pregunta/resumen según su
+  // guion determinista. El chat no puede salirse del guion.
   async function runTurn(text: string, hidden: boolean) {
     const trimmed = text.trim();
     if (!trimmed || statusRef.current !== "ready" || generatingRef.current) return;
@@ -217,80 +153,88 @@ export function useLocalChat() {
     commit((prev) => [...prev, userMsg, { role: "assistant", content: "", streaming: true }]);
     applyStatus("generating");
     try {
-      // Historial para el LLM: system + últimos mensajes (sin el placeholder).
+      // Historial para el LLM: system (contrato JSON) + últimos mensajes.
       const historyBase = messagesRef.current.slice(0, -1);
-      // Última respuesta visible del asistente (detecta repetición literal).
-      const prevAssistant = [...historyBase]
-        .reverse()
-        .find((m) => m.role === "assistant" && !m.hidden);
       const buildHistory = (): ChatCompletionMessageParam[] => [
-        { role: "system", content: buildSystemPrompt() },
+        { role: "system", content: buildAgentSystemPrompt() },
         ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
       ];
-      const streamIntoBubble = (onDelta2: (d: string) => void) =>
-        streamChat({
-          messages: buildHistory(),
-          temperature: 0.4,
-          maxTokens: 320,
-          onDelta: onDelta2,
-        });
-      let gen = await streamIntoBubble((delta) => {
-        commit((prev) => {
-          const copy = [...prev];
-          const last = copy.length - 1;
-          if (last >= 0) copy[last] = { ...copy[last], content: copy[last].content + delta };
-          return copy;
-        });
-      });
-      // Quality gate: fuera de guion (truncada, markdown, larga, sin tool o
-      // repetida) → UNA regeneración con la corrección explícita inyectada.
-      const correction = turnCorrection(gen.text, {
-        finishReason: gen.finishReason,
-        prevAssistant: prevAssistant ? stripMarkers(prevAssistant.content) : undefined,
-      });
-      if (correction) {
-        console.debug("[ai-chat] respuesta fuera de guion, regenerando:", correction);
-        commit((prev) => {
-          const copy = [...prev];
-          const last = copy.length - 1;
-          if (last >= 0) copy[last] = { ...copy[last], content: "" };
-          return copy;
-        });
-        gen = await streamChat({
-          messages: [
-            ...buildHistory(),
-            { role: "assistant", content: gen.text || "(sin respuesta)" },
-            {
-              role: "user",
-              content: `Corrección: ${correction} Responde de nuevo: 1-2 frases cortas y cálidas (tutea), UNA pregunta como máximo, texto plano, y termina con UNA herramienta {"tool":…} en la última línea.`,
-            },
-          ],
-          temperature: 0.4,
-          maxTokens: 400,
-          onDelta: (delta) => {
-            commit((prev) => {
-              const copy = [...prev];
-              const last = copy.length - 1;
-              if (last >= 0) copy[last] = { ...copy[last], content: copy[last].content + delta };
-              return copy;
-            });
-          },
-        });
+      // El JSON del modelo NO se muestra: se recoge entero y se parsea.
+      const generate = (msgs: ChatCompletionMessageParam[]) =>
+        streamChat({ messages: msgs, temperature: 0.1, maxTokens: 260, onDelta: () => undefined });
+      let obj = parseAgentObject((await generate(buildHistory())).text);
+      if (!obj) {
+        // Un reintento correctivo; si también falla, el guion de la app sigue
+        // igual (pregunta por lo que falte): el chat nunca se traba.
+        obj = parseAgentObject(
+          (
+            await generate([
+              ...buildHistory(),
+              {
+                role: "user",
+                content: "Responde SOLO con el objeto JSON de una sola línea.",
+              },
+            ])
+          ).text,
+        );
       }
-      const full = gen.text;
-      // Fin de la generación: burbuja completa + tool calls interpretadas.
-      const calls = interpretTurn(full);
+      // Fusiona los datos nuevos (conservando type/helpType si el JSON los
+      // omitió, para evitar flips por los defaults del saneado).
+      if (obj?.datos) {
+        draftRef.current = draftRef.current
+          ? mergeDrafts(draftRef.current, obj.datos, {
+              keepPrevType: obj.sinType,
+              keepPrevHelpType: obj.sinHelpType,
+            })
+          : obj.datos;
+        setDraft(draftRef.current);
+      }
+      const hasLocation = uiCtxRef.current.hasLocation;
+      const d = draftRef.current;
+      let bubble: string;
+      if (obj?.lugar && !hasLocation) {
+        // La persona mencionó un lugar: geocodificar y proponer candidatos.
+        const results = await searchAddress(obj.lugar);
+        if (results.length > 0) {
+          setLocationCandidates(results);
+          setAskLocation(true);
+          bubble =
+            results.length === 1
+              ? `Encontré el lugar para «${obj.lugar}»: confírmalo para marcarlo en el mapa.`
+              : `Encontré ${results.length} lugares para «${obj.lugar}»: elige el correcto para marcarlo en el mapa.`;
+        } else {
+          bubble = placeNotFoundQuestion(obj.lugar);
+        }
+      } else {
+        // Guion: qué pasó → ubicación → contacto → tipo de ayuda → resumen.
+        const field = nextMissingField(d, hasLocation);
+        if (field && !(obj?.resumen && field === "ayuda")) {
+          setMissing([field]);
+          setAskLocation(field === "ubicacion");
+          setConfirming(false);
+          bubble = nextQuestion(field, d);
+        } else {
+          setMissing([]);
+          setConfirming(true);
+          if (isDraftComplete(d)) setExtracted(d);
+          bubble = summaryQuestion();
+        }
+      }
+      // La burbuja del asistente es SIEMPRE texto de la app (determinista).
       commit((prev) => {
         const copy = [...prev];
         const last = copy.length - 1;
-        if (last >= 0) copy[last] = { ...copy[last], streaming: false, calls };
+        if (last >= 0) copy[last] = { role: "assistant", content: bubble };
         return copy;
       });
+      if (obj?.lugar) {
+        appendHiddenNote(
+          `[sistema: se geocodificó "${obj.lugar}" y la persona elegirá el lugar en la app.]`,
+        );
+      }
       applyStatus("ready");
-      setTurnAction("chat");
-      await executeCalls(calls);
     } catch (err) {
-      // Descarta la burbuja del asistente si no llegó nada y desbloquea.
+      // Descarta la burbuja en preparación si falló todo y desbloquea.
       commit((prev) => {
         const cleaned = prev.filter((m) => !(m.streaming && !m.content));
         return cleaned.map((m) => ({ ...m, streaming: false }));
@@ -303,6 +247,7 @@ export function useLocalChat() {
       generatingRef.current = false;
     }
   }
+
   // Respaldo: 2ª llamada dedicada de extracción desde la transcripción (para
   // cuando el acumulado de "datos" no alcance). La invoca la UI si hace falta.
   const extractFromTranscript = useCallback(async () => {
@@ -353,9 +298,10 @@ export function useLocalChat() {
     }
   }, []);
 
-  // Envío visible de la persona: habilita una nueva auto-continuación.
-  const send = useCallback(async (text: string) => {
-    autoContinuedRef.current = false;
+  // Envío visible de la persona. `ctx` lleva el estado de la UI (ubicación
+  // elegida) para que el guion determinista decida el siguiente paso.
+  const send = useCallback(async (text: string, ctx?: ChatUiContext) => {
+    if (ctx) uiCtxRef.current = ctx;
     await runTurn(text, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -376,9 +322,8 @@ export function useLocalChat() {
     setExtracting(false);
     draftRef.current = null;
     setDraft(null);
-    setTurnAction("chat");
     setLocationCandidates(null);
-    autoContinuedRef.current = false;
+    uiCtxRef.current = { hasLocation: false };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -396,7 +341,6 @@ export function useLocalChat() {
     extracted,
     askLocation,
     confirming,
-    turnAction,
     missing,
     extracting,
     locationCandidates,
