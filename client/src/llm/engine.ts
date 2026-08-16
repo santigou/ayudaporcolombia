@@ -7,7 +7,6 @@
 // - Solo un motor vivo a la vez: cambiar de modelo descarga el anterior.
 
 import type { ChatCompletionMessageParam, MLCEngineInterface } from "@mlc-ai/web-llm";
-import { findModelOption } from "./models";
 
 // ¿El navegador soporta WebGPU? Es requisito para ejecutar el modelo local.
 // (Chrome/Edge 113+, algunos Firefox; Safari aún no en todas las versiones.)
@@ -51,21 +50,8 @@ export async function ensureEngine(
       }
     }
     const webllm = await import("@mlc-ai/web-llm");
-    // Parchea el ModelRecord del modelo elegido si el catálogo lo pide (ej.
-    // gemma3-1b: su registro trae context_window_size=4096 y la config del
-    // modelo sliding_window_size=512 → el runtime exige uno de los dos en -1).
-    const patch = findModelOption(modelId).overrides;
-    const base = webllm.prebuiltAppConfig;
-    const appConfig = patch
-      ? {
-          ...base,
-          model_list: base.model_list.map((m) =>
-            m.model_id === modelId ? { ...m, overrides: { ...m.overrides, ...patch } } : m,
-          ),
-        }
-      : base;
     const engine = await webllm.CreateMLCEngine(modelId, {
-      appConfig,
+      appConfig: webllm.prebuiltAppConfig,
       initProgressCallback: (report) => onProgress(report.text),
     });
     state.engine = engine;

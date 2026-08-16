@@ -14,17 +14,19 @@ import { useAuth } from "../../context/AuthContext";
 import { useLoginModal } from "../../context/LoginModalContext";
 import { publishPoint } from "../../api/points";
 import { useLocalChat } from "../../hooks/useLocalChat";
-import { findModelOption, type LocalModelOption } from "../../llm/models";
+import { findModelOption } from "../../llm/models";
 import {
   MISSING_FIELDS,
   MISSING_LABELS,
   isLowQuality,
-  parseTurnState,
   stripMarkers,
+  type AgentCall,
   type AiPointDraft,
   type MissingField,
-  type TurnAction,
 } from "../../llm/prompt";
+import { MessageBubble } from "./chat/MessageBubble";
+import { LocationProposal } from "./chat/LocationProposal";
+import { QuickReplies } from "./chat/QuickReplies";
 import { searchAddress, type AddressResult } from "../AddressSearch";
 import {
   CONTACT_LABELS,
@@ -103,92 +105,6 @@ function ChatHeader({
   );
 }
 
-// Selector de modelo local. Se muestra la primera vez (antes de descargar) y
-// también desde "cambiar modelo" cuando ya hay un chat activo.
-function ModelPicker({
-  models,
-  selected,
-  busy,
-  onStart,
-  onChoose,
-  onSecondary,
-  secondaryLabel,
-}: {
-  models: LocalModelOption[];
-  selected: string;
-  busy: boolean;
-  onStart: () => void;
-  onChoose: (id: string) => void;
-  onSecondary: () => void;
-  secondaryLabel: string;
-}) {
-  const list = models.length > 0 ? models : [findModelOption(selected)];
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white">
-          <Sparkles className="h-4 w-4" aria-hidden="true" />
-        </span>
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">Crear punto con IA</h2>
-          <p className="text-xs text-gray-500">Cuéntalo por chat y lo estructuro por ti</p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        <p>
-          El modelo se ejecuta <strong>100% en tu dispositivo</strong> (WebGPU): tus mensajes
-          nunca salen de él. La descarga es solo la primera vez y queda en la caché del
-          navegador.
-        </p>
-      </div>
-
-      <p className="mt-4 text-sm font-medium text-gray-700">Elige un modelo</p>
-      <div className="mt-2 flex flex-col gap-2">
-        {list.map((m) => (
-          <label
-            key={m.id}
-            className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 ${
-              selected === m.id ? "border-brand bg-brand/5" : "border-gray-200"
-            }`}
-          >
-            <input
-              type="radio"
-              name="ai-model"
-              checked={selected === m.id}
-              onChange={() => onChoose(m.id)}
-              className="mt-0.5 accent-emerald-600"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-gray-800">
-                {m.label} <span className="font-normal text-gray-500">· {m.size}</span>
-              </span>
-              <span className="block text-xs text-gray-500">{m.note}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        onClick={onStart}
-        disabled={busy}
-        className="mt-4 w-full rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        Descargar modelo y empezar
-      </button>
-      <button
-        type="button"
-        onClick={onSecondary}
-        className="mt-2 w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-      >
-        {secondaryLabel}
-      </button>
-    </div>
-  );
-}
-
 // Pantalla de descarga del modelo (primera vez) con el progreso de WebLLM,
 // o de error con reintento.
 function LoadingModel({
@@ -247,22 +163,23 @@ function LoadingModel({
   );
 }
 
-// Texto de respaldo cuando el modelo respondió SOLO con el JSON de estado
-// (sin frase visible): el estado sí parseó y la UI ya reaccionó (chips, mapa,
-// botón…), así que derivamos una frase de la acción para que la conversación
-// siga siendo fluida. Siempre con "Reintentar" por si la persona prefiere una
-// respuesta del modelo.
-function derivedAssistantText(action: TurnAction): string {
-  switch (action) {
-    case "ubicacion":
-      return "Vamos a marcar el lugar: búscalo aquí arriba o toca «Prefiero marcarlo en el mapa».";
-    case "confirmar":
-      return "Este es el resumen de tu punto: revísalo en la tarjeta y pulsa «Publicar ahora» cuando todo esté bien.";
-    case "listo":
-      return "¡Listo! Publicando ahora…";
-    default:
-      return "Ya lo tengo anotado. Cuéntame lo que falte.";
+// Texto de respaldo cuando el modelo respondió SOLO con tool calls (sin frase
+// visible): la app ya ejecutó las tools (chips, mapa, tarjeta…), así que
+// derivamos una frase de la call principal para que la conversación siga
+// fluida. "Reintentar" queda disponible por si prefiere la voz del modelo.
+function derivedAssistantText(calls: AgentCall[] | undefined): string | null {
+  if (!calls || calls.length === 0) return null;
+  const pedir = calls.find((c) => c.tool === "pedir");
+  if (pedir && pedir.tool === "pedir") {
+    if (pedir.falta === "ubicacion")
+      return "Vamos a marcar el lugar: elige una opción aquí arriba o toca «Prefiero marcarlo en el mapa».";
+    return `Cuéntame ${MISSING_LABELS[pedir.falta]} para completar el punto.`;
   }
+  if (calls.some((c) => c.tool === "buscar_lugar")) return "Buscando el lugar en el mapa…";
+  if (calls.some((c) => c.tool === "resumen"))
+    return "Este es el resumen de tu punto: revísalo en la tarjeta y pulsa «Publicar ahora» cuando todo esté bien.";
+  if (calls.some((c) => c.tool === "listo")) return "¡Listo! Publicando ahora…";
+  return "Ya lo tengo anotado. Cuéntame lo que falte.";
 }
 
 // Chips de progreso: qué ya se tiene (✓) y qué falta (○). Al tocar "ubicación"
@@ -738,8 +655,6 @@ export function AiChat({
   const chat = useLocalChat();
   const { user } = useAuth();
   const loginModal = useLoginModal();
-  // "chat" = conversación; "settings" = cambiar de modelo (con motor ya listo).
-  const [view, setView] = useState<"chat" | "settings">("chat");
   const [input, setInput] = useState("");
   // Copia editable de lo extraído (la tarjeta puede corregirlo antes de aplicar).
   const [draft, setDraft] = useState<AiPointDraft | null>(null);
@@ -802,12 +717,13 @@ export function AiChat({
     void chat.send(t);
   }
 
-  // Ubicación elegida (buscador o mapa): se guarda, se cierra la tarjeta, se
-  // avisa al modelo para que continúe con lo que falte (él no ve la UI) y se
-  // notifica al wizard para que el marcador aparezca en el mapa EN VIVO.
+  // Ubicación elegida (buscador, propuesta o mapa): se guarda, se cierra la
+  // tarjeta, se notifica al wizard para el marcador EN VIVO y se le dice al
+  // modelo que continúe (él no ve la UI).
   function applyLocation(r: AddressResult) {
     setLocation(r);
     setLocOpen(false);
+    chat.clearLocationCandidates();
     onLocationPicked?.(r);
     void chat.send(`Ya definí la ubicación: ${r.label}. Sigue con lo que falte.`);
   }
@@ -948,28 +864,56 @@ export function AiChat({
     );
   }
 
-  // Selector de modelo: antes de la primera carga, o desde "cambiar modelo".
-  if (view === "settings" || chat.status === "idle") {
+  // Primera pantalla (un solo modelo): privacidad + tamaño de descarga.
+  if (chat.status === "idle") {
+    const model = findModelOption(chat.modelId);
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatHeader
-          showBack={chat.status === "ready"}
+          showBack={false}
           subtitle="IA local"
-          onBack={() => setView("chat")}
+          onBack={() => undefined}
           onClose={onClose}
         />
-        <ModelPicker
-          models={chat.models}
-          selected={chat.modelId}
-          busy={chat.status === "loading-model"}
-          onStart={() => {
-            void chat.start();
-            setView("chat");
-          }}
-          onChoose={chat.choose}
-          onSecondary={chat.status === "ready" ? () => setView("chat") : onExit}
-          secondaryLabel={chat.status === "ready" ? "Volver al chat" : "Prefiero el formulario"}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white">
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                Crear punto con IA
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Cuéntalo por chat y lo estructuro por ti
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <p>
+              El modelo ({model.label}, {model.size}) se ejecuta{" "}
+              <strong>100% en tu dispositivo</strong> (WebGPU): tus mensajes nunca salen de
+              él. La descarga es solo la primera vez y queda en la caché del navegador.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void chat.start()}
+            className="mt-4 w-full rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Descargar modelo y empezar
+          </button>
+          <button
+            type="button"
+            onClick={onExit}
+            className="mt-2 w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Prefiero el formulario
+          </button>
+        </div>
       </div>
     );
   }
@@ -1019,63 +963,31 @@ export function AiChat({
 
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ul className="flex flex-col gap-2">
-          {chat.messages.map((m, i) => {
-            const isUser = m.role === "user";
-            // Oculta el marcado de control ([[PUNTO]], [[FALTA]]…) al usuario.
-            const text = isUser ? m.content : stripMarkers(m.content);
-            // Mientras genera y aún no hay texto útil: se omite (indicador aparte).
-            if (!isUser && m.streaming && isLowQuality(m.content)) return null;
-            // Terminó sin texto útil (vacío o basura como `"` o `{`). Si el JSON
-            // de estado sí parseó, derivamos una frase de la acción (el flujo
-            // sigue); si no, burbuja de respaldo con reintento.
-            const useless = !isUser && !m.streaming && isLowQuality(m.content);
-            const state = useless ? parseTurnState(m.content) : null;
-            return (
-              <li key={i} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                    isUser
-                      ? "rounded-br-md bg-brand text-white"
-                      : "rounded-bl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-                  }`}
-                >
-                  {!useless ? (
-                    <p className="whitespace-pre-wrap break-words">
-                      {text}
-                      {m.streaming && <span className="animate-blink">▍</span>}
-                    </p>
-                  ) : state ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="whitespace-pre-wrap break-words">
-                        {derivedAssistantText(state.action)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={retryLast}
-                        className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                      >
-                        Reintentar
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="italic text-gray-400">(el asistente no respondió nada útil)</p>
-                      <button
-                        type="button"
-                        onClick={retryLast}
-                        className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                      >
-                        Reintentar
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+          {chat.messages
+            .filter((m) => !m.hidden)
+            .map((m, i) => {
+              const isUser = m.role === "user";
+              // Oculta tool calls/JSON de control; solo la frase visible.
+              const text = isUser ? m.content : stripMarkers(m.content);
+              // Mientras genera y aún no hay texto útil: se omite (indicador aparte).
+              if (!isUser && m.streaming && isLowQuality(m.content)) return null;
+              // Terminó sin frase visible pero con tool calls ejecutadas: burbuja
+              // con texto derivado de la acción (+ Reintentar). Sin calls: respaldo.
+              const useless = !isUser && !m.streaming && isLowQuality(m.content);
+              return (
+                <MessageBubble
+                  key={i}
+                  role={m.role}
+                  text={useless ? "" : text}
+                  streaming={m.streaming}
+                  fallbackText={useless ? derivedAssistantText(m.calls) : null}
+                  onRetry={useless ? retryLast : undefined}
+                />
+              );
+            })}
           {generating && (
             <li className="flex justify-start">
-              <div className="rounded-2xl rounded-bl-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400">
+              <div className="rounded-2xl rounded-bl-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 dark:border-gray-700 dark:bg-gray-900">
                 <span className="animate-blink">● ● ●</span>
               </div>
             </li>
@@ -1083,24 +995,23 @@ export function AiChat({
         </ul>
       </div>
 
-      {/* Respuestas rápidas cuando el modelo pide aprobación del resumen. */}
-      {chat.confirming && !generating && !chat.extracting && (
-        <div className="flex shrink-0 gap-2 px-4 pt-2">
-          <button
-            type="button"
-            onClick={() => void chat.send("Sí, apruebo. Publícalo así.")}
-            className="flex-1 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-white"
-          >
-            ✓ Sí, publícalo
-          </button>
-          <button
-            type="button"
-            onClick={() => setInput("Quiero corregir algo: ")}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-          >
-            ✏️ Corregir algo
-          </button>
-        </div>
+      {/* Candidatos de la tool buscar_lugar: la persona elige (o marca en el
+          mapa) y el marcador aparece en el mapa en vivo al instante. */}
+      {chat.locationCandidates && chat.locationCandidates.length > 0 && (
+        <LocationProposal
+          candidates={chat.locationCandidates}
+          onPick={applyLocation}
+          onMarkMap={() => requestMapPick(applyLocation)}
+        />
+      )}
+
+      {/* Respuestas rápidas con el resumen en pantalla: "Sí, publícalo"
+          publica DIRECTO (determinista, sin esperar al modelo). */}
+      {chat.confirming && !generating && !chat.extracting && !publishing && (
+        <QuickReplies
+          onApprove={() => void handlePublish()}
+          onCorrect={() => setInput("Quiero corregir algo: ")}
+        />
       )}
 
       {/* Tarjeta editable con lo recopilado: botón "Publicar ahora" (publica

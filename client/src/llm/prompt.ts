@@ -1,12 +1,12 @@
 // System prompt y parseo del resultado para el asistente de creación por chat.
 //
-// El LLM actúa como "entrevistador" de emergencia (sismo): recopila la
-// información con preguntas cortas (una a la vez) y cierra CADA respuesta con
-// un objeto JSON de estado {"a":…,"f":[…],"p":{…}} que la app parsea para
-// saber qué hacer (pedir la ubicación, mostrar el botón de publicar…) y para
-// acumular el borrador en vivo. El parseo es tolerante: si el modelo rompe el
-// JSON, el turno se trata como "chat" y se conserva el estado anterior.
-// Como respaldo (JSON final incompleto) queda la 2ª llamada de extracción.
+// AGENTE CON TOOLS: el modelo solo entrevista (texto corto) y clasifica; cada
+// turno cierra con UNA o DOS tool calls JSON (una por línea). La APP ejecuta
+// las tools: acumular datos, geocodificar el lugar (Nominatim), armar el
+// resumen y publicar. El modelo NUNCA publica ni dice "publicando" — eso
+// elimina de raíz las publicaciones prematuras y el texto inventado.
+// Fallback: si el modelo no emite tool calls, se interpretan los marcadores
+// legacy [[…]] y el JSON {"a",...} de versiones previas del contrato.
 
 import {
   CONTACT_TYPES,
@@ -63,54 +63,34 @@ export const AI_GREETING =
 
 export function buildSystemPrompt(): string {
   return [
-    'Eres el asistente de "Ayuda por Colombia", un mapa colaborativo de emergencias por SISMO/TERREMOTO en Colombia. Ayudas a la persona a publicar un PUNTO en el mapa: algo que NECESITA (need_help) u OFRECE (offer_help): rescate de personas atrapadas, heridos, personas perdidas o encontradas, refugios, centros de acopio, alimentos, agua, medicina, transporte, ropa, voluntarios, mascotas perdidas…',
+    'Eres el asistente del mapa de emergencias por sismo "Ayuda por Colombia". Entrevistas a una persona para publicar su PUNTO en el mapa: algo que NECESITA (need_help) u OFRECE (offer_help): atrapados, heridos, personas perdidas o encontradas, refugios, acopio, agua, comida, medicina, transporte, mascotas…',
     "",
-    "PRINCIPIO: es una EMERGENCIA: acepta TODO lo que la persona quiera publicar. NUNCA rechaces, juzgues, corrijas su decisión, sermones ni hables de otros temas. Tu única misión es recopilar datos RÁPIDO y publicar. Si la persona está en peligro: dile que llame al 123 (Colombia) y sigue. No des consejos médicos, legales ni de seguridad.",
+    "REGLAS:",
+    "1. Tutea a la persona. Máximo 2 líneas cortas por respuesta. UNA sola pregunta.",
+    "2. Texto plano: nunca markdown, nunca listas, nunca encabezados, nunca repitas texto del sistema.",
+    "3. NUNCA digas «publicando» ni prometas publicar: publicar lo hace la app, no tú.",
+    "4. Si la persona está en peligro: dile que llame al 123 (Colombia) y sigue.",
+    "5. Acepta todo lo que quiera publicar; no juzgues ni des consejos. Usa SOLO datos que la persona dijo.",
+    "6. Repasa la conversación antes de preguntar: NUNCA preguntes lo que ya te dijeron.",
+    "7. Cierra CADA respuesta con UNA o DOS llamadas a herramienta, cada una en su propia línea, al final. Sin ellas la app no entiende tu turno.",
     "",
-    "ESTILO (obligatorio):",
-    "- Español, cálido y MUY breve: 1 frase reconociendo + 1 pregunta. Nada más.",
-    "- UNA pregunta a la vez.",
-    "- NUNCA respondas solo con el JSON: tu respuesta SIEMPRE empieza con una frase breve y visible (reconoce + pregunta) y el JSON va DESPUÉS, al final. Si escribes solo el JSON, la persona no ve nada.",
-    "- Antes de responder repasa TODO lo que la persona ya dijo en la conversación. NUNCA preguntes algo que ya sepas. Si solo falta un dato, pregunta solo ese. Si ya no falta nada, ve directo al RESUMEN.",
-    "- Antes de resumir, verifica CADA dato contra la conversación. Usa SOLO lo que la persona dijo: los lugares de los EJEMPLOS (Castilla, Manizales) NO son datos reales; nunca los menciones si la persona no los dijo.",
+    "HERRAMIENTAS:",
+    '{"tool":"datos","p":{…}} — guarda lo NUEVO que dijo la persona. Campos de p: "type" ("need_help"/"offer_help"), "helpType" ("Refugio"/"Alimentos"/"Agua"/"Médico"/"Otro"), "title" (anuncio corto), "description" (detalles), "supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}], "contacts":[{"type":"whatsapp","value":"…"}] (tipos: phone/whatsapp/instagram/email/other). Envía SOLO los campos nuevos; no repitas todo.',
+    '{"tool":"buscar_lugar","q":"lugar"} — ubica el punto en el mapa. Úsala en cuanto sepas el lugar, aunque sea vago (ej. "Castilla, Medellín").',
+    '{"tool":"pedir","falta":"campo"} — pide un dato que falte: que_paso, ayuda, ubicacion, contacto o fotos.',
+    '{"tool":"resumen"} — cuando ya no falte nada. La app arma el resumen y el botón de publicar.',
+    '{"tool":"listo"} — SOLO cuando la persona apruebe el resumen («sí», «dale», «publícalo»).',
     "",
-    "GUION DE RESPALDO (solo para lo que FALTE, en este orden):",
-    "1. ¿Qué pasó o qué ofrece? (personas atrapadas o heridas, daños, desde cuándo…)",
-    "2. Un detalle útil (cuántas personas, estado, cuánto hay disponible…).",
-    "3. Tipo de ayuda: Refugio, Alimentos, Agua, Médico u Otro.",
-    "4. Si necesita u ofrece algo concreto (suministros) y cuánto.",
-    '5. ¿Dónde? PASO OBLIGATORIO antes del resumen: la app abre un mapa para marcar el punto. Si la persona ya mencionó un lugar, confírmalo («¿Lo marcamos en {lugar}?»); si no, pregunta por barrio o zona (nunca dirección exacta). En ambos casos usa "a":"ubicacion".',
-    "6. ¿Tiene fotos? Dile que puede subirlas con el botón 📎. No insistas si no quiere.",
-    "7. Un contacto (teléfono, WhatsApp, Instagram o email).",
+    "GUION: qué pasó → detalle útil → tipo de ayuda → suministros → lugar → fotos (opcional, no insistas) → contacto → resumen → listo.",
     "",
-    'CONTROL (la app lo lee y lo oculta; va DESPUÉS de tu texto visible, al FINAL de CADA respuesta, en UNA sola línea):',
-    '{"a":"chat|ubicacion|confirmar|listo","f":[lo que falte],"p":{todo lo recopilado}}',
-    "Formato EXACTO de cada respuesta: 1 frase breve visible + 1 salto de línea + el JSON. MAL: responder solo con el JSON. BIEN: «¡Qué pena con Toby! ¿Desde cuándo lo buscas?» y en la línea siguiente el JSON.",
-    '- "a": acción de este turno: "chat" (normal), "ubicacion" (cuando pides el lugar), "confirmar" (cuando muestras el RESUMEN final), "listo" (SOLO si la persona aprobó tu último resumen con "sí", "dale", "publícalo"…).',
-    "- \"f\": lista con lo que falte de: que_paso,ayuda,ubicacion,contacto,fotos ([] si no falta nada).",
-    '- "p": TODO lo recopilado hasta ahora, con estos campos SIEMPRE: {"type":"need_help" u "offer_help","helpType":"Refugio|Alimentos|Agua|Médico|Otro","title":"…","description":"…","supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}],"contacts":[{"type":"phone|whatsapp|instagram|email|other","value":"…"}],"locationQuery":"lugar que mencionó la persona o \"\""}. Repite "p" COMPLETO en cada respuesta con todo lo que sepas hasta entonces; usa SOLO datos que la persona dijo.',
-    "",
-    "RESUMEN Y APROBACIÓN (cuando no falte nada, o la persona lo pida):",
-    "- NO pidas aprobación sin haber resuelto antes la ubicación (paso 5).",
-    '- Resume en 2-3 líneas SOLO con datos que la persona dijo: «Voy a publicar: título. Descripción: … Contacto: … ¿Lo apruebas?» con "a":"confirmar" y "f":[].',
-    '- Si la persona corrige o pregunta algo (lugar, contacto…): corrige, vuelve a resumir con "a":"confirmar". NUNCA uses "listo" después de una corrección o pregunta.',
-    '- "listo" SOLO si la persona aprueba explícitamente tu ÚLTIMO resumen. Entonces responde SOLO "¡Listo! Publicando ahora…" con "a":"listo" y el "p" final completo: la app publica el punto sola.',
-    "",
-    "EJEMPLO 1 (reporte por partes):",
-    "Persona: Mi hermana quedó atrapada en un apartamento en Castilla, llevamos horas sin saber de ella.",
-    'Asistente: Qué situación tan difícil, vamos a publicarlo ya. ¿Lo marcamos en Castilla en el mapa, o prefieres buscar el lugar? {"a":"ubicacion","f":["ayuda","contacto","fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla.","supplies":[],"contacts":[],"locationQuery":"Castilla"}}',
-    "Persona: Sí, márcalo ahí. Somos 3 familiares esperando noticias. WhatsApp 320 123 4567.",
-    'Asistente: Punto marcado. ¿Qué tipo de ayuda necesita: rescate, médico, otra? {"a":"chat","f":["ayuda","fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
-    "Persona: Rescate, urgente.",
-    'Asistente: ¡Gracias! Voy a publicar: «Persona atrapada en apartamento en Castilla». Su hermana quedó dentro; 3 familiares esperan noticias desde hace horas. Contacto: WhatsApp 320 123 4567. ¿Lo apruebas? {"a":"confirmar","f":["fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias desde hace horas. Rescate urgente.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
-    "Persona: Sí, publícalo ya.",
-    'Asistente: ¡Listo! Publicando ahora… {"a":"listo","f":[],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias desde hace horas. Rescate urgente.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
-    "",
-    "EJEMPLO 2 (ofrecimiento completo de una):",
-    "Persona: Ofrezco refugio para 20 personas en el centro de Manizales, con camas y agua; mi celular es 310 555 8899.",
-    'Asistente: ¡Qué buena ayuda! ¿Lo marcamos en el centro de Manizales en el mapa? {"a":"ubicacion","f":["fotos"],"p":{"type":"offer_help","helpType":"Refugio","title":"Refugio para 20 personas en el centro de Manizales","description":"Refugio con camas y agua para 20 personas.","supplies":[{"name":"Agua"}],"contacts":[{"type":"phone","value":"310 555 8899"}],"locationQuery":"centro de Manizales"}}',
+    "EJEMPLO:",
+    "Persona: Perdí a mi perro Toby, un beagle, cerca al CAD de Castilla en Medellín.",
+    "Asistente: ¡Qué pena con Toby! Vamos a publicarlo para que más gente te ayude a buscarlo. ¿Tienes un contacto (teléfono o WhatsApp)?",
+    '{"tool":"datos","p":{"type":"need_help","title":"Se perdió Toby, beagle, en Castilla","description":"Beagle llamado Toby perdido cerca al CAD de Castilla, Medellín, tras el sismo."}}',
+    '{"tool":"buscar_lugar","q":"CAD de Castilla, Medellín"}',
   ].join("\n");
 }
+
 
 // SEGUNDA ETAPA — extracción del punto. Cuando el usuario aprueba el resumen
 // (el asistente responde [[LISTO]]), la app hace una llamada DEDICADA con este
@@ -130,7 +110,97 @@ export function buildExtractionPrompt(transcript: string): string {
   ].join("\n");
 }
 
-// ── Estado por turno (JSON) ──────────────────────────────────────────────────
+// ── Agente: tool calls por turno ─────────────────────────────────────────────
+// Contrato: cada turno del modelo = texto visible corto + UNA o DOS tool calls
+// JSON (una por línea, al final). La app las ejecuta en orden. Si el modelo no
+// emite ninguna, se interpretan los formatos legacy (marcadores [[…]] o JSON
+// {"a",...}) para no romper conversaciones iniciadas con contratos previos.
+
+export type AgentCall =
+  | { tool: "datos"; p: AiPointDraft }
+  | { tool: "buscar_lugar"; q: string }
+  | { tool: "pedir"; falta: MissingField }
+  | { tool: "resumen" }
+  | { tool: "listo" };
+
+// Interpreta un turno completo: tool calls del agente (primario) o formatos
+// legacy mapeados a calls equivalentes. [] = el turno no pidió nada.
+export function interpretTurn(text: string): AgentCall[] {
+  const calls = extractToolCalls(text);
+  if (calls.length > 0) return calls;
+  const ts = parseTurnState(text);
+  if (ts) {
+    const out: AgentCall[] = [];
+    // Solo guarda datos si el "p" trae algo (un delta vacío no aporta y evita
+    // calls fantasma cuando el modelo usa un nombre de tool inválido).
+    if (ts.draft && draftHasContent(ts.draft)) out.push({ tool: "datos", p: ts.draft });
+    if (ts.action === "ubicacion") out.push({ tool: "pedir", falta: "ubicacion" });
+    if (ts.action === "confirmar") out.push({ tool: "resumen" });
+    if (ts.action === "listo") out.push({ tool: "listo" });
+    if (out.length > 0) return out;
+    return [];
+  }
+  if (asksLocation(text)) return [{ tool: "pedir", falta: "ubicacion" }];
+  if (asksConfirmation(text)) return [{ tool: "resumen" }];
+  if (asksDone(text)) return [{ tool: "listo" }];
+  const miss = parseMissing(text);
+  if (miss && miss.length > 0) return [{ tool: "pedir", falta: miss[0] }];
+  return [];
+}
+
+// ¿El delta/borrador trae algún dato aprovechable?
+function draftHasContent(d: AiPointDraft): boolean {
+  return (
+    d.title.length > 0 ||
+    d.description.length > 0 ||
+    d.locationQuery.length > 0 ||
+    d.supplies.length > 0 ||
+    d.contacts.length > 0
+  );
+}
+
+// Todos los objetos JSON balanceados del texto (en orden) que sean tool calls
+// válidas del contrato. Tolerante a basura alrededor; ignora los que no parsean.
+function extractToolCalls(text: string): AgentCall[] {
+  const calls: AgentCall[] = [];
+  for (const s of balancedObjects(text)) {
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof raw.tool !== "string") continue;
+    switch (raw.tool) {
+      case "datos": {
+        const d = sanitizePartialDraft(raw.p);
+        if (d) calls.push({ tool: "datos", p: d });
+        break;
+      }
+      case "buscar_lugar": {
+        const q = typeof raw.q === "string" ? raw.q.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+        if (q) calls.push({ tool: "buscar_lugar", q });
+        break;
+      }
+      case "pedir": {
+        const f = raw.falta;
+        if (typeof f === "string" && (MISSING_FIELDS as readonly string[]).includes(f)) {
+          calls.push({ tool: "pedir", falta: f as MissingField });
+        }
+        break;
+      }
+      case "resumen":
+        calls.push({ tool: "resumen" });
+        break;
+      case "listo":
+        calls.push({ tool: "listo" });
+        break;
+    }
+  }
+  return calls;
+}
+
+// ── Estado por turno (legacy) ───────────────────────────────────────────────
 // El asistente cierra CADA respuesta con {"a":…,"f":[…],"p":{…}}. La app lo
 // parsea para saber qué hacer (pedir la ubicación, mostrar el botón de
 // publicar…) y para acumular el borrador en vivo. Si el modelo rompe el JSON,
@@ -195,11 +265,22 @@ export function isDraftComplete(d: AiPointDraft | null): boolean {
   );
 }
 
-// Último objeto {…} balanceado a nivel de texto (con consciencia de strings)
-// que parezca estado de turno (tenga alguna clave "a"/"f"/"p"). Devolver el
-// último evita confundir el JSON de un ejemplo con el estado real.
+// Último objeto {…} balanceado (consciencia de strings) que parezca estado de
+// turno legacy (claves "a"/"f"/"p"). Devolver el último evita confundir el JSON
+// de un ejemplo con el estado real.
 function extractLastStateObject(text: string): string | null {
-  const candidates: string[] = [];
+  const candidates = balancedObjects(text);
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const s = candidates[i];
+    if (s.includes('"a"') || s.includes('"f"') || s.includes('"p"')) return s;
+  }
+  return null;
+}
+
+// Todos los objetos {…} balanceados del texto, en orden de aparición. Escaneo
+// con consciencia de strings y escapes: no se confunde con llaves en textos.
+function balancedObjects(text: string): string[] {
+  const out: string[] = [];
   let depth = 0;
   let start = -1;
   let inStr = false;
@@ -222,16 +303,12 @@ function extractLastStateObject(text: string): string | null {
     } else if (c === "}") {
       if (depth > 0) depth--;
       if (depth === 0 && start !== -1) {
-        candidates.push(text.slice(start, k + 1));
+        out.push(text.slice(start, k + 1));
         start = -1;
       }
     }
   }
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const s = candidates[i];
-    if (s.includes('"a"') || s.includes('"f"') || s.includes('"p"')) return s;
-  }
-  return null;
+  return out;
 }
 
 // Igual que sanitizePointDraft pero para el borrador PARCIAL de un turno: no
@@ -285,16 +362,27 @@ export function stripMarkers(text: string): string {
     .trim();
 }
 
-// Elimina del texto todos los objetos JSON que parezcan estado de turno
-// (máximo 4 pasadas: el modelo solo debería emitir uno, pero por si repite).
+// Elimina del texto los objetos JSON de control (tool calls del agente y
+// estados legacy). Máximo 6 pasadas: el modelo debería emitir 1-2, pero por si
+// se excede.
 function stripStateJson(text: string): string {
   let out = text;
-  for (let n = 0; n < 4; n++) {
-    const candidate = extractLastStateObject(out);
-    if (!candidate) break;
-    out = out.replace(candidate, "");
+  for (let n = 0; n < 6; n++) {
+    const objs = balancedObjects(out);
+    const target = [...objs].reverse().find((s) => looksLikeControl(s));
+    if (!target) break;
+    out = out.replace(target, "");
   }
   return out;
+}
+
+function looksLikeControl(s: string): boolean {
+  return (
+    s.includes('"tool"') ||
+    s.includes('"a"') ||
+    s.includes('"f"') ||
+    s.includes('"p"')
+  );
 }
 
 // ¿La respuesta no tiene texto útil? Vacía o solo símbolos residuales de
