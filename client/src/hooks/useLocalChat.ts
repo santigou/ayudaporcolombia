@@ -7,7 +7,13 @@ import {
   streamChat,
 } from "../llm/engine";
 import { loadSavedModelId, saveModelId } from "../llm/models";
-import { searchAddress, expandMention, rankByQuery, type AddressResult } from "../components/AddressSearch";
+import {
+  searchAddress,
+  expandMention,
+  rankByQuery,
+  similarQueries,
+  type AddressResult,
+} from "../components/AddressSearch";
 import {
   AI_GREETING,
   buildAgentSystemPrompt,
@@ -281,22 +287,32 @@ export function useLocalChat() {
       let bubble: string;
       if (obj?.lugar && !hasLocation) {
         // La persona mencionó un lugar: geocodificar el SINTAGMA COMPLETO de
-        // su texto (ej. «casd de castilla en medellin», no solo «Castilla»:
-        // la mención recortada cae en el centro de la comuna, lejos del sitio
-        // real) con fallback a la mención corta, y rankear por coincidencia.
+        // su texto (ej. «casd de castilla en medellin») con degradación
+        // progresiva si no hay resultados: mención del modelo → consultas
+        // SIMILARES (sitio+ciudad, token más largo…). Nunca se fracasa a la
+        // primera; solo si todo falla se pregunta por barrio/comuna/ciudad.
         const full = expandMention(userTextRef.current, obj.lugar);
-        let results = await searchAddress(full);
-        if (results.length === 0 && full !== obj.lugar) {
-          results = await searchAddress(obj.lugar);
+        const attempts = [...new Set([full, obj.lugar, ...similarQueries(full)])].filter(
+          (q) => q.trim().length > 0,
+        );
+        let results: AddressResult[] = [];
+        let usedQuery = full;
+        for (const q of attempts) {
+          const r = await searchAddress(q);
+          if (r.length > 0) {
+            results = r;
+            usedQuery = q;
+            break;
+          }
         }
-        const ranked = rankByQuery(results, full);
+        const ranked = rankByQuery(results, usedQuery);
         if (ranked.length > 0) {
           setLocationCandidates(ranked);
           setAskLocation(true);
           bubble =
             ranked.length === 1
-              ? `Encontré el lugar para «${full}»: confírmalo para marcarlo en el mapa.`
-              : `Encontré ${ranked.length} lugares para «${full}»: elige el correcto para marcarlo en el mapa.`;
+              ? `Encontré el lugar para «${usedQuery}»: confírmalo para marcarlo en el mapa.`
+              : `Encontré ${ranked.length} lugares para «${usedQuery}»: elige el correcto para marcarlo en el mapa.`;
         } else {
           bubble = placeNotFoundQuestion(full);
         }

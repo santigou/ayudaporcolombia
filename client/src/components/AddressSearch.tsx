@@ -140,35 +140,41 @@ function normTokensForSearch(s: string): string[] {
 
 const isSignificant = (t: string) => t.length >= 3 && !EXPAND_GAPS.has(t);
 
-// `lugar` (p. ej. «Castilla» o «Castilla, Medellín») → sintagma completo del
-// texto («casd de castilla en medellin»). El matching es sobre tokens
-// SIGNIFICATIVOS del lugar, permitiendo huecos de conectores en el texto
-// («castilla en medellín»); si no aparece, se devuelve tal cual.
+// `lugar` (p. ej. «Castilla» o «Casco de Castilla, Medellín») → sintagma
+// completo del texto («casd de castilla en medellin»). El matching es sobre
+// tokens SIGNIFICATIVOS del lugar, permitiendo huecos de conectores en el
+// texto («castilla en medellín»); y si un token del lugar está corrupto (el
+// modelo «corrige» casd→Casco y esa palabra no está en el texto), se reintenta
+// saltándolo (k0 creciente: se prefiere cubrir más tokens del lugar). Si no
+// aparece nada, se devuelve tal cual.
 export function expandMention(rawText: string, lugar: string): string {
   const textTokens = normTokensForSearch(rawText);
   const lugarSig = normTokensForSearch(lugar).filter(isSignificant);
   if (textTokens.length === 0 || lugarSig.length === 0) return lugar;
-  // Localiza la primera aparición de la secuencia significativa (en orden,
-  // con conectores como huecos). Devuelve [inicio, fin] sobre el texto.
+  const matchesToken = (t: string, sig: string) =>
+    t === sig || t.startsWith(sig.slice(0, 4));
+  // Localiza la secuencia significativa (en orden, con huecos), reintentando
+  // desde cada posición inicial del lugar hasta cubrir al menos 1 token.
   let span: [number, number] | null = null;
-  for (let i = 0; i < textTokens.length && !span; i++) {
-    if (textTokens[i] !== lugarSig[0] && !textTokens[i].startsWith(lugarSig[0].slice(0, 4))) {
-      continue;
-    }
-    let j = i + 1;
-    let ok = true;
-    for (let k = 1; k < lugarSig.length; k++) {
-      while (j < textTokens.length && !isSignificant(textTokens[j])) j++;
-      if (
-        j >= textTokens.length ||
-        (textTokens[j] !== lugarSig[k] && !textTokens[j].startsWith(lugarSig[k].slice(0, 4)))
-      ) {
-        ok = false;
+  for (let k0 = 0; k0 < lugarSig.length && !span; k0++) {
+    const remaining = lugarSig.slice(k0);
+    for (let i = 0; i < textTokens.length; i++) {
+      if (!matchesToken(textTokens[i], remaining[0])) continue;
+      let j = i + 1;
+      let ok = true;
+      for (let k = 1; k < remaining.length; k++) {
+        while (j < textTokens.length && !isSignificant(textTokens[j])) j++;
+        if (j >= textTokens.length || !matchesToken(textTokens[j], remaining[k])) {
+          ok = false;
+          break;
+        }
+        j++;
+      }
+      if (ok) {
+        span = [i, j];
         break;
       }
-      j++;
     }
-    if (ok) span = [i, j];
   }
   if (!span) return lugar;
   let [start, end] = span;
@@ -231,6 +237,23 @@ export function rankByQuery(results: AddressResult[], query: string): AddressRes
   // Estable: conserva el orden de Nominatim entre empates.
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.r);
+}
+
+// Consultas SIMILARES progresivas para cuando la original no devuelve nada:
+// pares de tokens clave (sitio + ciudad), el token más largo, el primero y el
+// último. Devuelven resultados «parecidos» en vez de fracasar.
+export function similarQueries(query: string): string[] {
+  const sig = normTokensForSearch(query).filter(isSignificant);
+  if (sig.length <= 1) return [];
+  const longest = [...sig].sort((a, b) => b.length - a.length)[0];
+  const candidates = [
+    sig.slice(-2).join(" "), // «castilla medellin» (sitio + ciudad)
+    sig.length >= 3 ? sig.slice(0, 2).join(" ") : "",
+    longest,
+    sig[0],
+    sig[sig.length - 1],
+  ];
+  return [...new Set(candidates.map((q) => q.trim()).filter((q) => q.length >= 3))];
 }
 
 export function AddressSearch({ onSelect }: AddressSearchProps) {
