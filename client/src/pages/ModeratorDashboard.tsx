@@ -57,7 +57,7 @@ export function ModeratorDashboard() {
 
   if (authLoading) return <p className="p-6 text-sm text-gray-500">Cargando…</p>;
   if (!user || user.role !== "moderator") {
-    return <p className="p-6 text-sm text-gray-700">Solo los moderadores pueden ver esta página.</p>;
+    return <p className="p-6 text-sm text-gray-700 dark:text-gray-300">Solo los moderadores pueden ver esta página.</p>;
   }
 
   async function reviewPoint(id: string, action: "approve" | "reject") {
@@ -89,30 +89,30 @@ export function ModeratorDashboard() {
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
-      <h1 className="text-lg font-bold text-gray-900">Panel de moderación</h1>
-      <div className="mt-3 flex gap-2 border-b border-gray-200">
-        <button onClick={() => setTab("puntos")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "puntos" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
+      <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">Panel de moderación</h1>
+      <div className="mt-3 flex gap-2 border-b border-gray-200 dark:border-gray-700">
+        <button onClick={() => setTab("puntos")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "puntos" ? "border-brand text-brand-dark dark:text-brand" : "border-transparent text-gray-500 dark:text-gray-400"}`}>
           Puntos pendientes ({pendingPoints.length})
         </button>
-        <button onClick={() => setTab("solicitudes")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "solicitudes" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
+        <button onClick={() => setTab("solicitudes")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "solicitudes" ? "border-brand text-brand-dark dark:text-brand" : "border-transparent text-gray-500 dark:text-gray-400"}`}>
           Solicitudes ({pendingRequests.length})
         </button>
-        <button onClick={() => setTab("estados")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "estados" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
+        <button onClick={() => setTab("estados")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "estados" ? "border-brand text-brand-dark dark:text-brand" : "border-transparent text-gray-500 dark:text-gray-400"}`}>
           Cambios de estado ({pendingStatusRequests.length})
         </button>
-        <button onClick={() => setTab("partners")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "partners" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
+        <button onClick={() => setTab("partners")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "partners" ? "border-brand text-brand-dark dark:text-brand" : "border-transparent text-gray-500 dark:text-gray-400"}`}>
           Partners ({partners.filter((p) => !p.approvedAt).length})
         </button>
       </div>
 
       {loading ? (
-        <p className="mt-4 text-sm text-gray-500">Cargando…</p>
+        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Cargando…</p>
       ) : error ? (
         <p className="mt-4 text-sm text-red-600">{error}</p>
       ) : tab === "partners" ? (
         <ul className="mt-4 flex flex-col gap-3">
           {partners.length === 0 && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               No hay partners registrados. Las apps se registran solas en{" "}
               <a href="/partners" className="underline">
                 /partners
@@ -124,10 +124,10 @@ export function ModeratorDashboard() {
           {[...partners]
             .sort((a, b) => Number(!!a.approvedAt) - Number(!!b.approvedAt))
             .map((p) => (
-              <li key={p.id} className={`rounded-md border p-3 ${p.approvedAt ? "border-gray-200" : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"}`}>
+              <li key={p.id} className={`rounded-md border p-3 ${p.approvedAt ? "border-gray-200 dark:border-gray-700" : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="truncate font-semibold text-gray-900 dark:text-gray-100">
+                    <h3 className="truncate font-semibold text-gray-900 dark:text-gray-100 dark:text-gray-100">
                       {p.name} <span className="font-mono text-xs font-normal text-gray-400">@{p.slug}</span>
                     </h3>
                     <p className="flex items-center gap-1 text-xs text-gray-500">
@@ -183,29 +183,29 @@ export function ModeratorDashboard() {
         </ul>
       ) : tab === "puntos" ? (
         <ul className="mt-4 flex flex-col gap-3">
-          {pendingPoints.length === 0 && <p className="text-sm text-gray-500">No hay puntos pendientes.</p>}
+          {pendingPoints.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No hay puntos pendientes.</p>}
           {pendingPoints.map((point) => {
             const address = locationLabel(point.location);
             return (
-              <li key={point.id} className="rounded-md border border-gray-200 p-3">
+              <li key={point.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-700">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-900">{point.title}</h3>
-                  {point.helpType && <span className="rounded-full bg-emerald-100 text-emerald-700 text-[11px] px-2 py-0.5">{point.helpType}</span>}
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{point.title}</h3>
+                  {point.helpType && <span className="rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200 text-[11px] px-2 py-0.5">{point.helpType}</span>}
                 </div>
-                <p className="mt-1 text-sm text-gray-600">{point.description}</p>
-                {address && <p className="mt-1 text-xs text-gray-500">Ubicación: {address}</p>}
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{point.description}</p>
+                {address && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Ubicación: {address}</p>}
                 {point.contacts.length > 0 && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Contacto:{" "}
                     {point.contacts.map((c) => `${CONTACT_LABELS[c.type]}: ${c.value}`).join(" · ")}
                   </p>
                 )}
                 <div className="mt-1 flex items-center gap-2">
-                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-600">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                     {point.code}
                   </code>
                   {point.validationCount > 0 && (
-                    <span className="flex items-center gap-1 text-xs font-medium text-emerald-700">
+                    <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
                       <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                       {point.validationCount} verificación{point.validationCount !== 1 ? "es" : ""}
                     </span>
@@ -214,15 +214,15 @@ export function ModeratorDashboard() {
                 <div className="mt-2 flex items-center gap-2">
                   {point.createdBy ? (
                     <>
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold uppercase text-gray-600">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold uppercase text-gray-600 dark:bg-gray-700 dark:text-gray-200">
                         {point.createdBy.email.charAt(0)}
                       </span>
-                      <span className="text-sm font-medium text-gray-800">
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
                         {point.createdBy.email}
                       </span>
                     </>
                   ) : (
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                       Anónimo
                     </span>
                   )}
@@ -237,9 +237,9 @@ export function ModeratorDashboard() {
         </ul>
       ) : tab === "solicitudes" ? (
         <ul className="mt-4 flex flex-col gap-3">
-          {pendingRequests.length === 0 && <p className="text-sm text-gray-500">No hay solicitudes pendientes.</p>}
+          {pendingRequests.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No hay solicitudes pendientes.</p>}
           {pendingRequests.map((req) => (
-            <li key={req.id} className="rounded-md border border-gray-200 p-3">
+            <li key={req.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-700">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-base font-bold uppercase text-brand">
                   {req.user.email.charAt(0)}
@@ -248,7 +248,7 @@ export function ModeratorDashboard() {
                   <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
                     Solicitante
                   </p>
-                  <p className="truncate font-semibold text-gray-900">{req.user.email}</p>
+                  <p className="truncate font-semibold text-gray-900 dark:text-gray-100">{req.user.email}</p>
                   <p className="text-xs text-gray-400">
                     Solicita el {new Date(req.createdAt).toLocaleDateString()}
                   </p>
@@ -263,31 +263,31 @@ export function ModeratorDashboard() {
         </ul>
       ) : (
         <ul className="mt-4 flex flex-col gap-3">
-          {pendingStatusRequests.length === 0 && <p className="text-sm text-gray-500">No hay solicitudes de cambio de estado.</p>}
+          {pendingStatusRequests.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No hay solicitudes de cambio de estado.</p>}
           {pendingStatusRequests.map((req) => (
-            <li key={req.id} className="rounded-md border border-gray-200 p-3">
+            <li key={req.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-700">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="font-semibold text-gray-900">{req.point.title}</h3>
-                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-600">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100">{req.point.title}</h3>
+                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                   {req.point.code}
                 </code>
               </div>
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                 Estado actual:{" "}
-                <span className="font-medium text-gray-800">{STATUS_LABELS[req.point.status]}</span>
+                <span className="font-medium text-gray-800 dark:text-gray-200">{STATUS_LABELS[req.point.status]}</span>
                 {" → "}
-                <span className="font-medium text-blue-700">{STATUS_LABELS[req.targetStatus]}</span>
+                <span className="font-medium text-blue-700 dark:text-blue-300">{STATUS_LABELS[req.targetStatus]}</span>
               </p>
               {req.reason && (
-                <p className="mt-1 rounded-md bg-gray-50 p-2 text-xs text-gray-600">
+                <p className="mt-1 rounded-md bg-gray-50 p-2 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                   <span className="font-medium">Motivo:</span> {req.reason}
                 </p>
               )}
               <div className="mt-2 flex items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold uppercase text-gray-600">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-bold uppercase text-gray-600 dark:bg-gray-700 dark:text-gray-200">
                   {req.user.email.charAt(0)}
                 </span>
-                <span className="text-sm font-medium text-gray-800">{req.user.email}</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{req.user.email}</span>
                 <span className="text-xs text-gray-400">
                   · {new Date(req.createdAt).toLocaleDateString()}
                 </span>
