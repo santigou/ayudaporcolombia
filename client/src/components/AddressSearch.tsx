@@ -94,6 +94,26 @@ export async function searchAddress(query: string): Promise<AddressResult[]> {
   }
 }
 
+// Etiqueta corta de lugar para UI: "Comuna 5 - Castilla, Perímetro Urbano
+// Medellín, Medellín, …" → "Comuna 5 - Castilla, Medellín". Quita el prefijo
+// "Perímetro Urbano X" de OSM y duplicados, y recorta a `max` caracteres.
+export function shortPlaceLabel(label: string, max = 72): string {
+  const parts = label
+    .split(",")
+    .map((s) => s.trim().replace(/^Per[íi]metro Urbano\s+/i, ""))
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const uniq = parts.filter((p) => {
+    const k = p.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  let out = uniq.slice(0, 3).join(", ");
+  if (out.length > max) out = out.slice(0, max - 1).trimEnd() + "…";
+  return out || label;
+}
+
 export function AddressSearch({ onSelect }: AddressSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AddressResult[]>([]);

@@ -4,7 +4,7 @@
 // puntos en el lugar equivocado.
 
 import { MapPin } from "lucide-react";
-import type { AddressResult } from "../../AddressSearch";
+import { shortPlaceLabel, type AddressResult } from "../../AddressSearch";
 
 interface LocationProposalProps {
   query?: string;
@@ -33,7 +33,7 @@ export function LocationProposal({ query, candidates, onPick, onMarkMap }: Locat
                 onClick={() => onPick(r)}
                 className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-xs text-gray-700 hover:border-brand hover:bg-brand/5 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-brand"
               >
-                {r.label}
+                {shortPlaceLabel(r.label)}
               </button>
             </li>
           ))}

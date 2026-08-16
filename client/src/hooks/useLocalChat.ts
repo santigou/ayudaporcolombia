@@ -12,6 +12,7 @@ import {
   AI_GREETING,
   buildAgentSystemPrompt,
   buildExtractionPrompt,
+  extractContactsFromText,
   isDraftComplete,
   mergeDrafts,
   nextMissingField,
@@ -19,6 +20,7 @@ import {
   parseAgentObject,
   parsePointDraft,
   placeNotFoundQuestion,
+  sanitizeDraftAgainstText,
   stripMarkers,
   summaryQuestion,
   type AiPointDraft,
@@ -83,6 +85,10 @@ export function useLocalChat() {
   // Espejo de messages SIN dependencia del render: las auto-continuaciones
   // necesitan el historial ya actualizado en el mismo tick.
   const messagesRef = useRef<ChatMessage[]>([]);
+  // TODO lo que la persona ha escrito (visible): base de la anti-fabricación
+  // (solo se aceptan datos rastreables a este texto) y de la extracción
+  // determinista de contactos.
+  const userTextRef = useRef("");
   // Espejo de status: los callbacks con dependencias vacías (send) congelan el
   // closure del primer render (status "idle") y rechazarían todo envío. Con el
   // ref el guard siempre ve el status real.
@@ -150,6 +156,7 @@ export function useLocalChat() {
     generatingRef.current = true;
     setError(null);
     const userMsg: ChatMessage = { role: "user", content: trimmed, hidden: hidden || undefined };
+    if (!hidden) userTextRef.current += ` ${trimmed}`;
     commit((prev) => [...prev, userMsg, { role: "assistant", content: "", streaming: true }]);
     applyStatus("generating");
     try {
@@ -178,16 +185,46 @@ export function useLocalChat() {
           ).text,
         );
       }
-      // Fusiona los datos nuevos (conservando type/helpType si el JSON los
-      // omitió, para evitar flips por los defaults del saneado).
+      // Contactos deterministas del mensaje de la persona (regex: @handle,
+      // email, teléfono/whatsapp): entran aunque el modelo falle o invente.
+      const found = extractContactsFromText(trimmed);
+      if (found.length > 0) {
+        const base =
+          draftRef.current ??
+          ({
+            type: "need_help",
+            title: "",
+            description: "",
+            helpType: "Otro",
+            supplies: [],
+            contacts: [],
+            locationQuery: "",
+          } as AiPointDraft);
+        const seen = new Set(base.contacts.map((c) => `${c.type}:${c.value.toLowerCase()}`));
+        const add = found.filter((c) => !seen.has(`${c.type}:${c.value.toLowerCase()}`));
+        if (add.length > 0) {
+          draftRef.current = { ...base, contacts: [...base.contacts, ...add].slice(0, 3) };
+          setDraft(draftRef.current);
+        }
+      }
+      // Fusiona los datos nuevos del modelo (conservando type/helpType si el
+      // JSON los omitió) y aplica la ANTI-FABRICACIÓN: título/descripción con
+      // palabras no rastreables al texto de la persona, contactos fabricados o
+      // suministros no mencionados se descartan (se restaura el valor previo
+      // de título/descripción si existía).
       if (obj?.datos) {
-        draftRef.current = draftRef.current
-          ? mergeDrafts(draftRef.current, obj.datos, {
+        const prev = draftRef.current;
+        let merged = prev
+          ? mergeDrafts(prev, obj.datos, {
               keepPrevType: obj.sinType,
               keepPrevHelpType: obj.sinHelpType,
             })
           : obj.datos;
-        setDraft(draftRef.current);
+        merged = sanitizeDraftAgainstText(merged, userTextRef.current);
+        if (!merged.title && prev?.title) merged.title = prev.title;
+        if (!merged.description && prev?.description) merged.description = prev.description;
+        draftRef.current = merged;
+        setDraft(merged);
       }
       const hasLocation = uiCtxRef.current.hasLocation;
       const d = draftRef.current;
@@ -324,6 +361,7 @@ export function useLocalChat() {
     setDraft(null);
     setLocationCandidates(null);
     uiCtxRef.current = { hasLocation: false };
+    userTextRef.current = "";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

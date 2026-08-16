@@ -195,6 +195,7 @@ export function buildAgentSystemPrompt(): string {
     "",
     "Reglas:",
     '- "datos": SOLO campos con información que la persona haya dado (su último mensaje o algo aún no anotado). "title": anuncio autónomo, máximo 100 caracteres. "description": todos los detalles útiles. Nunca inventes: usa únicamente lo que la persona dijo.',
+    "- NUNCA inventes contactos, teléfonos, emails ni URLs: si la persona no dio un contacto, deja \"contacts\" vacío. No conviertas un @handle en email.",
     '- "lugar": si la persona mencionó dónde (aunque sea vago: barrio, comuna, ciudad), ponlo tal cual lo dijo.',
     '- "type": "offer_help" SOLO si la persona OFRECE ayuda; si busca o necesita, "need_help".',
     '- "resumen": true cuando con lo anotado ya se puede publicar (hay título, descripción y contacto).',
@@ -380,6 +381,125 @@ export function mergeDrafts(
     supplies: next.supplies.length > 0 ? next.supplies : prev.supplies,
     contacts: next.contacts.length > 0 ? next.contacts : prev.contacts,
   };
+}
+
+// ── Anti-fabricación: valida el borrador contra lo que la persona escribió ──
+// El modelo estructurador a veces inventa: títulos-pregunta de roleplay
+// («¿Cómo puedo ayudarte?»), descripciones con URLs nunca enviadas, contactos
+// fabricados («testtes@email.com» a partir de un @handle) o suministros no
+// mencionados («Agua»). Regla de oro: solo se publica lo rastreable al texto
+// REAL de la persona. Lo que no pasa la guarda se vacía (el llamador puede
+// restaurar el valor anterior).
+
+function normForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9@._\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Palabra rastreable: prefijo de 4+ caracteres (tolera inflexiones del
+// español: «perdí» ↔ «perdido»); cortas exigen coincidencia exacta.
+function wordMatches(word: string, hay: string): boolean {
+  if (word.length >= 4) return hay.includes(word.slice(0, 4));
+  return hay.includes(word);
+}
+
+function overlapRatio(text: string, hay: string): number {
+  const words = normForMatch(text).split(" ").filter((w) => w.length >= 3);
+  if (words.length === 0) return 0;
+  const hits = words.filter((w) => wordMatches(w, hay)).length;
+  return hits / words.length;
+}
+
+// Contacto rastreable según su tipo (p. ej. un email exige que la persona lo
+// escribiera completo; un @handle basta para instagram; dígitos para teléfono).
+function contactTraceable(c: ContactInfo, hay: string, hayCompact: string, hayDigits: string): boolean {
+  const v = normForMatch(c.value);
+  if (!v) return false;
+  switch (c.type) {
+    case "email":
+      return hay.includes(v);
+    case "instagram":
+      return hay.includes(v.replace(/^@/, ""));
+    case "phone":
+    case "whatsapp": {
+      const digits = c.value.replace(/\D/g, "");
+      return digits.length >= 7 && hayDigits.includes(digits);
+    }
+    default:
+      return hayCompact.includes(v.replace(/\s/g, ""));
+  }
+}
+
+export function sanitizeDraftAgainstText(d: AiPointDraft, userText: string): AiPointDraft {
+  const hay = normForMatch(userText);
+  const hayCompact = hay.replace(/\s/g, "");
+  const hayDigits = userText.replace(/\D/g, "");
+  const title = d.title.trim();
+  const titleOK =
+    title.length >= 3 && !title.includes("?") && overlapRatio(title, hay) >= 0.5;
+  const desc = d.description.trim();
+  const descOK = desc.length >= 10 && overlapRatio(desc, hay) >= 0.4;
+  return {
+    ...d,
+    title: titleOK ? d.title : "",
+    description: descOK ? d.description : "",
+    supplies: d.supplies.filter((s) => hayCompact.includes(normForMatch(s.name).replace(/\s/g, ""))),
+    contacts: d.contacts.filter((c) => contactTraceable(c, hay, hayCompact, hayDigits)),
+  };
+}
+
+// ── Contactos deterministas: extraídos por regex del texto de la persona ────
+// No dependen del modelo: si la persona escribe @handle, un email o un número
+// con «whatsapp», el contacto entra aunque el modelo falle o invente otro.
+export function extractContactsFromText(text: string): ContactInfo[] {
+  const out: ContactInfo[] = [];
+  const seen = new Set<string>();
+  const push = (type: ContactType, value: string) => {
+    const v = value.trim();
+    const key = `${type}:${v.toLowerCase()}`;
+    if (!v || seen.has(key)) return;
+    seen.add(key);
+    out.push({ type, value: v });
+  };
+  // Emails primero (usuario@dominio.com no es un @handle).
+  for (const m of text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? []) {
+    push("email", m.toLowerCase());
+  }
+  // Instagram: @handle (que no sea email) o instagram.com/handle.
+  for (const m of text.matchAll(/@([a-z0-9._]{3,30})(?![\w.-]*@[a-z])/gi)) {
+    push("instagram", `@${m[1].toLowerCase()}`);
+  }
+  const igUrl = text.match(/instagram\.com\/([a-z0-9._]{2,30})/i);
+  if (igUrl) push("instagram", `@${igUrl[1].toLowerCase()}`);
+  // Teléfono / WhatsApp: 7-15 dígitos; «whatsapp» cerca → tipo whatsapp.
+  const lower = text.toLowerCase();
+  for (const m of text.match(/\+?\d[\d\s().-]{5,}\d/g) ?? []) {
+    const digits = m.replace(/\D/g, "");
+    if (digits.length < 7 || digits.length > 15) continue;
+    const idx = lower.indexOf(m.toLowerCase());
+    const before = idx > 0 ? lower.slice(Math.max(0, idx - 20), idx) : "";
+    push(/whats|wsp|\bws\b/.test(before) ? "whatsapp" : "phone", m.trim());
+  }
+  return out;
+}
+
+// Union de contactos sin duplicados (tope 3, igual que el formulario).
+function dedupeContacts(existing: ContactInfo[], add: ContactInfo[]): ContactInfo[] {
+  const seen = new Set(existing.map((c) => `${c.type}:${c.value.toLowerCase()}`));
+  const out = [...existing];
+  for (const c of add) {
+    const k = `${c.type}:${c.value.toLowerCase()}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(c);
+    }
+  }
+  return out.slice(0, 3);
 }
 
 // ¿El borrador acumulado ya sirve para publicar sin la 2ª llamada de

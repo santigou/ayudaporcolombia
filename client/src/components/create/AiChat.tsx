@@ -24,7 +24,7 @@ import {
 import { MessageBubble } from "./chat/MessageBubble";
 import { LocationProposal } from "./chat/LocationProposal";
 import { QuickReplies } from "./chat/QuickReplies";
-import { searchAddress, type AddressResult } from "../AddressSearch";
+import { searchAddress, shortPlaceLabel, type AddressResult } from "../AddressSearch";
 import {
   CONTACT_LABELS,
   CONTACT_TYPES,
@@ -278,7 +278,7 @@ function LocationCard({
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
         <p className="flex items-start gap-1.5 text-sm text-emerald-800">
           <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 break-words">{chosen.label}</span>
+          <span className="min-w-0 break-words">{shortPlaceLabel(chosen.label)}</span>
         </p>
         <button
           type="button"
@@ -973,7 +973,7 @@ export function AiChat({
         <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-gray-100 px-4 py-3 dark:border-gray-800">
           <DraftCard
             draft={draft}
-            locationLabel={location?.label ?? null}
+            locationLabel={location ? shortPlaceLabel(location.label) : null}
             photosCount={photos.length}
             publishing={publishing}
             onChange={setDraft}
