@@ -1,0 +1,30 @@
+{
+  "direction": "inbound",
+  "definition": {
+    "externalId": "id",
+    "point": {
+      "type": { "$literal": "offer_help" },
+      "title": "titulo",
+      "description": "desc",
+      "helpTypeName": { "$literal": "Donaciones" },
+      "locations": [
+        {
+          "type": { "$literal": "origin" },
+          "lat": 4.711,
+          "lng": -74.07,
+          "city": "origen.ciudad",
+          "neighborhood": "'Centro'",
+          "address": "origen.direccion"
+        }
+      ],
+      "contacts": [{ "type": { "$literal": "phone" }, "value": "tel" }]
+    }
+  },
+  "sampleInput": {
+    "id": "demo-001",
+    "titulo": "Comedor comunitario la Esperanza",
+    "desc": "Entregamos almuerzos calientes de lunes a viernes para familias afectadas.",
+    "origen": { "direccion": "Cra 7 #71-21", "ciudad": "Bogota" },
+    "tel": "3001112233"
+  }
+}

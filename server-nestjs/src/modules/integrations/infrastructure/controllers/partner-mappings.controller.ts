@@ -62,6 +62,12 @@ export class PartnerMappingsController {
   // Prueba un mapeo SIN guardarlo: devuelve el resultado evaluado y, en
   // inbound, si pasaría la validación canónica.
   @Post('dry-run')
+  @ApiOperation({
+    summary: 'Probar un mapeo sin guardarlo',
+    description:
+      'INBOUND: sampleInput = un payload tuyo real; el resultado debe cumplir CanonicalPointInput. ' +
+      'OUTBOUND: sampleInput = el sobre canónico que enviamos (esquema CanonicalEnvelope); el resultado es lo que recibirá tu webhook.',
+  })
   async dryRun(
     @Req() req: IntegrationRequest,
     @Body(new ZodValidationPipe(dryRunSchema)) body: z.infer<typeof dryRunSchema>,

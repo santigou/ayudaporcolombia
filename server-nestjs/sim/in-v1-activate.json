@@ -1,0 +1,25 @@
+{
+  "direction": "inbound",
+  "activate": true,
+  "notes": "v1: formato original (titulo/desc/origen/tel)",
+  "definition": {
+    "externalId": "id",
+    "point": {
+      "type": { "$literal": "offer_help" },
+      "title": "titulo",
+      "description": "desc",
+      "helpTypeName": { "$literal": "Donaciones" },
+      "locations": [
+        {
+          "type": { "$literal": "origin" },
+          "lat": 4.711,
+          "lng": -74.07,
+          "city": "origen.ciudad",
+          "neighborhood": "'Centro'",
+          "address": "origen.direccion"
+        }
+      ],
+      "contacts": [{ "type": { "$literal": "phone" }, "value": "tel" }]
+    }
+  }
+}

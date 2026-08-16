@@ -4,6 +4,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { applyIntegrationSchemas } from './modules/integrations/infrastructure/swagger-schemas';
 import * as cookieParser from 'cookie-parser';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -95,6 +96,10 @@ async function bootstrap() {
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT de usuario (también vale la cookie `token`)' }, 'bearerJWT')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
+  // Enums y contratos canónicos reutilizables (PointType, LocationType,
+  // CanonicalEnvelope...) como componentes $ref: visibles en la sección
+  // "Schemas" de la UI y referenciados por los endpoints de integración.
+  applyIntegrationSchemas(document);
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: { persistAuthorization: true, tagsSorter: 'alpha', operationsSorter: 'alpha' },
   });

@@ -128,6 +128,14 @@ export const partnerApi = {
 
   whoami: () => request<PartnerView>("/integrations/v1/whoami"),
 
+  // Self-service: webhook + credenciales outbound + flags sendOn*.
+  // outboundEnabled/trusted siguen siendo solo del moderador.
+  updateMe: (body: Partial<Pick<PartnerView, "outboundUrl" | "authType" | "outboundHeaderName" | "loginUrl" | "tokenJsonPath" | "tokenHeader" | "sendOnCreated" | "sendOnUpdated">> & { outboundApiKeyValue?: string | null; loginEmail?: string | null; loginPassword?: string | null }) =>
+    request<PartnerView>("/integrations/v1/me", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
   createKey: () =>
     request<{ id: string; name: string; prefix: string; key: string }>("/integrations/v1/keys", {
       method: "POST",

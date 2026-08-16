@@ -1,0 +1,30 @@
+{
+  "direction": "inbound",
+  "definition": {
+    "externalId": "id",
+    "point": {
+      "type": { "$literal": "offer_help" },
+      "title": "nombre",
+      "description": "desc",
+      "helpTypeName": { "$literal": "Donaciones" },
+      "locations": [
+        {
+          "type": { "$literal": "origin" },
+          "lat": 4.711,
+          "lng": -74.07,
+          "city": "origen.ciudad",
+          "neighborhood": "'Centro'",
+          "address": "origen.direccion"
+        }
+      ],
+      "contacts": [{ "type": { "$literal": "phone" }, "value": "tel" }]
+    }
+  },
+  "sampleInput": {
+    "id": "demo-002",
+    "nombre": "Brigada medica zona 3",
+    "desc": "Brigada de salud gratuita con medicinas basicas y vacunacion.",
+    "origen": { "direccion": "Calle 45 #12-30", "ciudad": "Bogota" },
+    "tel": "3009998877"
+  }
+}

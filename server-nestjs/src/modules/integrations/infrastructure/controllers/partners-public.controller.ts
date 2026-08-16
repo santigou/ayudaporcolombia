@@ -6,6 +6,7 @@ import {
   HttpException,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -13,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { PartnerAdminService } from '../../application/partner-admin.service';
+import { PartnerAdminService, PartnerWriteInput } from '../../application/partner-admin.service';
 import { PrismaService } from '../../../../shared/infrastructure/database/prisma.service';
 import { ZodValidationPipe } from '../../../../shared/application/validators/validation.pipe';
 import { ApiKeyGuard, AllowUnapprovedPartner, IntegrationRequest } from '../guards/api-key.guard';
@@ -26,6 +27,23 @@ const registerSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*$/, 'solo minúsculas, números y guiones'),
   name: z.string().min(2).max(120),
   contactEmail: z.string().email(),
+});
+
+// Campos que el partner puede autogestionar de su config OUTBOUND vía el
+// dashboard. Lo que NO está aquí sigue siendo solo del moderador:
+// outboundEnabled (empezar a recibir puntos), trusted, inboundEnabled, slug.
+const selfUpdateSchema = z.object({
+  outboundUrl: z.string().url().nullable().optional(),
+  authType: z.enum(['api_key', 'login']).optional(),
+  outboundHeaderName: z.string().min(1).max(60).nullable().optional(),
+  outboundApiKeyValue: z.string().min(8).max(300).nullable().optional(),
+  loginUrl: z.string().url().nullable().optional(),
+  loginEmail: z.string().email().nullable().optional(),
+  loginPassword: z.string().min(4).max(300).nullable().optional(),
+  tokenJsonPath: z.string().min(1).max(120).nullable().optional(),
+  tokenHeader: z.string().min(1).max(60).nullable().optional(),
+  sendOnCreated: z.boolean().optional(),
+  sendOnUpdated: z.boolean().optional(),
 });
 
 // Rate limit en memoria por IP para el registro público: máx 5 registros/hora.
@@ -105,6 +123,24 @@ export class PartnerSelfController {
   @ApiOperation({ summary: 'Estado del partnership (auth: API key del partner)' })
   async whoami(@Req() req: IntegrationRequest) {
     return this.admin.getPartner(req.integrationPartner!.id);
+  }
+
+  // Self-service de la config OUTBOUND (webhook + credenciales + flags).
+  // Reutiliza updatePartner del admin (cifra secretos, devuelve vista
+  // enmascarada). El interruptor outboundEnabled NO va aquí: activar el envío
+  // de nuestros puntos hacia el partner sigue siendo decisión del moderador.
+  @Patch('me')
+  @AllowUnapprovedPartner()
+  @ApiOperation({
+    summary: 'Actualizar mi config de webhook/credenciales outbound',
+    description:
+      'Editable por el partner: outboundUrl, authType y credenciales, tokenJsonPath/tokenHeader, sendOnCreated/sendOnUpdated. Los secretos se guardan cifrados y se devuelven enmascarados. Para EMPEZAR a recibir puntos (outboundEnabled) un moderador debe activarlo.',
+  })
+  async updateMe(
+    @Req() req: IntegrationRequest,
+    @Body(new ZodValidationPipe(selfUpdateSchema)) body: PartnerWriteInput,
+  ) {
+    return this.admin.updatePartner(req.integrationPartner!.id, body);
   }
 
   // --- Gestión SELF-SERVICE de sus propias API keys (crear/listar/revocar) ---

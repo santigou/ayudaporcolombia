@@ -210,12 +210,12 @@ Authorization: Bearer apc_tu_clave_aqui`}
                 try {
                   const me = await partnerApi.whoami();
                   alert(
-                    `✓ Key válida. Partner "${me.name}" (${me.slug}).` +
+                    `Key válida. Partner "${me.name}" (${me.slug}).` +
                       (me.approvedAt ? " Aprobado: ya puedes enviar puntos." : " PENDIENTE de aprobación: aún no puedes enviar puntos."),
                   );
                 } catch (e) {
                   setPartnerKey(null);
-                  alert("✗ " + (e instanceof Error ? e.message : "Key inválida"));
+                  alert("Key inválida: " + (e instanceof Error ? e.message : "revisa e inténtalo de nuevo"));
                 }
               }}
               className="shrink-0 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white"

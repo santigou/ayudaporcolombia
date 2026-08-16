@@ -28,72 +28,10 @@ export class IntegrationsController {
       'Partner trusted → punto activo inmediato; si no → cola de moderación.',
   })
   @ApiBody({
-    description: 'Contrato genérico (sin mapeo JSONata configurado)',
-    schema: {
-      type: 'object',
-      required: ['externalId', 'point'],
-      properties: {
-        externalId: { type: 'string', example: 'punto-123-en-tu-sistema' },
-        source: {
-          type: 'object',
-          description: 'Opcional. Provenance (anti-eco). Si app=ayudaporcolombia se ignora el envío.',
-          properties: {
-            app: { type: 'string', example: 'mi-app' },
-            id: { type: 'string', example: 'punto-123-en-tu-sistema' },
-            url: { type: 'string', example: 'https://mi-app.com/p/123' },
-          },
-        },
-        point: {
-          type: 'object',
-          required: ['type', 'title', 'description', 'helpTypeName', 'locations'],
-          properties: {
-            type: { type: 'string', enum: ['need_help', 'offer_help'] },
-            title: { type: 'string', example: 'Centro de acopio norte' },
-            description: { type: 'string', example: 'Recibimos comida no perecedera y agua.' },
-            helpTypeName: { type: 'string', example: 'Donaciones' },
-            locations: {
-              type: 'array',
-              minItems: 1,
-              maxItems: 5,
-              items: {
-                type: 'object',
-                properties: {
-                  type: { type: 'string', enum: ['location', 'origin', 'destination'], default: 'location' },
-                  lat: { type: 'number', example: 4.711 },
-                  lng: { type: 'number', example: -74.0721 },
-                  address: { type: 'string', example: 'Calle 100 #15-30' },
-                  city: { type: 'string', example: 'Bogotá' },
-                  neighborhood: { type: 'string', example: 'Chapinero' },
-                },
-              },
-            },
-            contacts: {
-              type: 'array',
-              description: 'offer_help exige ≥1',
-              items: {
-                type: 'object',
-                properties: {
-                  type: { type: 'string', enum: ['phone', 'whatsapp', 'instagram', 'email', 'other'] },
-                  value: { type: 'string', example: '3001234567' },
-                },
-              },
-            },
-            supplies: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string', example: 'Agua' },
-                  targetQuantity: { type: 'integer', example: 100 },
-                  unit: { type: 'string', example: 'litros' },
-                },
-              },
-            },
-            expiresAt: { type: 'string', format: 'date-time', example: '2026-12-31T00:00:00.000Z' },
-          },
-        },
-      },
-    },
+    description:
+      'Contrato genérico (sin mapeo JSONata configurado). Con mapeo inbound activo aceptamos TU formato. ' +
+      'Ver el esquema CanonicalPointInput y los enums (PointType, LocationType, ContactType) en la sección Schemas.',
+    schema: { $ref: '#/components/schemas/CanonicalPointInput' },
   })
   async create(
     @Body() body: unknown,

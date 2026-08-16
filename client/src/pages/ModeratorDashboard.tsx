@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { CheckCircle2, Mail, Star } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import type { PartnerView } from "../api/partner";
 import { useAuth } from "../context/AuthContext";
 import { CONTACT_LABELS, STATUS_LABELS, locationLabel, type ContactInfo, type Point, type PointStatusRequestItem } from "../types";
 
@@ -16,7 +18,7 @@ interface ModeratorRequestItem {
   user: { id: string; email: string };
 }
 
-type Tab = "puntos" | "solicitudes" | "estados";
+type Tab = "puntos" | "solicitudes" | "estados" | "partners";
 
 export function ModeratorDashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -24,6 +26,7 @@ export function ModeratorDashboard() {
   const [pendingPoints, setPendingPoints] = useState<ModeratorPoint[]>([]);
   const [pendingRequests, setPendingRequests] = useState<ModeratorRequestItem[]>([]);
   const [pendingStatusRequests, setPendingStatusRequests] = useState<PointStatusRequestItem[]>([]);
+  const [partners, setPartners] = useState<PartnerView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,14 +34,16 @@ export function ModeratorDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [points, requests, statusRequests] = await Promise.all([
+      const [points, requests, statusRequests, partnerList] = await Promise.all([
         api.get<ModeratorPoint[]>("/moderator/points/pending"),
         api.get<ModeratorRequestItem[]>("/moderator/requests"),
         api.get<PointStatusRequestItem[]>("/moderator/status-requests"),
+        api.get<PartnerView[]>("/admin/partners").catch(() => [] as PartnerView[]),
       ]);
       setPendingPoints(points);
       setPendingRequests(requests);
       setPendingStatusRequests(statusRequests);
+      setPartners(partnerList);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos cargar el panel.");
     } finally {
@@ -70,6 +75,18 @@ export function ModeratorDashboard() {
     setPendingStatusRequests((prev) => prev.filter((r) => r.id !== id));
   }
 
+  // Aprueba un partner auto-registrado: su API key pasa a poder enviar puntos.
+  async function approvePartner(id: string) {
+    const updated = await api.post<PartnerView>(`/admin/partners/${id}/approve`);
+    setPartners((prev) => prev.map((p) => (p.id === id ? updated : p)));
+  }
+
+  // Marca/desmarca trusted (publicación inmediata sin cola de moderación).
+  async function toggleTrusted(p: PartnerView) {
+    const updated = await api.patch<PartnerView>(`/admin/partners/${p.id}`, { trusted: !p.trusted });
+    setPartners((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+  }
+
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
       <h1 className="text-lg font-bold text-gray-900">Panel de moderación</h1>
@@ -83,12 +100,87 @@ export function ModeratorDashboard() {
         <button onClick={() => setTab("estados")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "estados" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
           Cambios de estado ({pendingStatusRequests.length})
         </button>
+        <button onClick={() => setTab("partners")} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === "partners" ? "border-brand text-brand-dark" : "border-transparent text-gray-500"}`}>
+          Partners ({partners.filter((p) => !p.approvedAt).length})
+        </button>
       </div>
 
       {loading ? (
         <p className="mt-4 text-sm text-gray-500">Cargando…</p>
       ) : error ? (
         <p className="mt-4 text-sm text-red-600">{error}</p>
+      ) : tab === "partners" ? (
+        <ul className="mt-4 flex flex-col gap-3">
+          {partners.length === 0 && (
+            <p className="text-sm text-gray-500">
+              No hay partners registrados. Las apps se registran solas en{" "}
+              <a href="/partners" className="underline">
+                /partners
+              </a>
+              .
+            </p>
+          )}
+          {/* Pendientes primero, luego aprobados */}
+          {[...partners]
+            .sort((a, b) => Number(!!a.approvedAt) - Number(!!b.approvedAt))
+            .map((p) => (
+              <li key={p.id} className={`rounded-md border p-3 ${p.approvedAt ? "border-gray-200" : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-gray-900 dark:text-gray-100">
+                      {p.name} <span className="font-mono text-xs font-normal text-gray-400">@{p.slug}</span>
+                    </h3>
+                    <p className="flex items-center gap-1 text-xs text-gray-500">
+                      {p.contactEmail && (
+                        <>
+                          <Mail className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          <span className="truncate">{p.contactEmail}</span>
+                          <span aria-hidden="true">·</span>
+                        </>
+                      )}
+                      <span>registrado {new Date(p.createdAt).toLocaleDateString()}</span>
+                    </p>
+                  </div>
+                  {p.approvedAt ? (
+                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800 dark:bg-green-900 dark:text-green-200">
+                      Aprobado
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-amber-200 px-2.5 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-800 dark:text-amber-100">
+                      Pendiente
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {!p.approvedAt && (
+                    <button
+                      onClick={() => approvePartner(p.id)}
+                      className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white"
+                    >
+                      Aprobar partnership
+                    </button>
+                  )}
+                  <button
+                    onClick={() => toggleTrusted(p)}
+                    className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium ${
+                      p.trusted
+                        ? "border-emerald-300 text-emerald-700 dark:border-emerald-700"
+                        : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300"
+                    }`}
+                    title="trusted = sus puntos se publican directo, sin cola de moderación"
+                  >
+                    <Star className={`h-3.5 w-3.5 ${p.trusted ? "fill-current" : ""}`} aria-hidden="true" />
+                    {p.trusted ? "trusted" : "marcar trusted"}
+                  </button>
+                </div>
+                {p.approvedAt && !p.trusted && (
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    Sus puntos entran a la cola de "Puntos pendientes" como cualquier usuario.
+                  </p>
+                )}
+              </li>
+            ))}
+        </ul>
       ) : tab === "puntos" ? (
         <ul className="mt-4 flex flex-col gap-3">
           {pendingPoints.length === 0 && <p className="text-sm text-gray-500">No hay puntos pendientes.</p>}
@@ -113,8 +205,9 @@ export function ModeratorDashboard() {
                     {point.code}
                   </code>
                   {point.validationCount > 0 && (
-                    <span className="text-xs font-medium text-emerald-700">
-                      ✓ {point.validationCount} verificación{point.validationCount !== 1 ? "es" : ""}
+                    <span className="flex items-center gap-1 text-xs font-medium text-emerald-700">
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      {point.validationCount} verificación{point.validationCount !== 1 ? "es" : ""}
                     </span>
                   )}
                 </div>
