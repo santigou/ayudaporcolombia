@@ -81,6 +81,10 @@ export function useLocalChat() {
   // Espejo de messages SIN dependencia del render: las auto-continuaciones
   // necesitan el historial ya actualizado en el mismo tick.
   const messagesRef = useRef<ChatMessage[]>([]);
+  // Espejo de status: los callbacks con dependencias vacías (send) congelan el
+  // closure del primer render (status "idle") y rechazarían todo envío. Con el
+  // ref el guard siempre ve el status real.
+  const statusRef = useRef<LocalChatStatus>("idle");
   // Guarda de re-entrada y de auto-continuación (máx. 1 por intercambio).
   const generatingRef = useRef(false);
   const autoContinuedRef = useRef(false);
@@ -93,6 +97,12 @@ export function useLocalChat() {
     setMessages(messagesRef.current);
   }
 
+  // setStatus que mantiene el espejo sincronizado.
+  function applyStatus(s: LocalChatStatus) {
+    statusRef.current = s;
+    setStatus(s);
+  }
+
   // Carga el motor (descarga la primera vez).
   const start = useCallback(
     async (id?: string) => {
@@ -102,16 +112,16 @@ export function useLocalChat() {
         saveModelId(id);
       }
       setError(null);
-      setStatus("loading-model");
+      applyStatus("loading-model");
       setProgress("");
       try {
         await ensureEngine(target, setProgress);
-        setStatus("ready");
+        applyStatus("ready");
         commit((prev) =>
           prev.length > 0 ? prev : [{ role: "assistant", content: AI_GREETING }],
         );
       } catch (err) {
-        setStatus("error");
+        applyStatus("error");
         setError(
           err instanceof Error
             ? `No se pudo cargar el modelo: ${err.message}`
@@ -200,12 +210,12 @@ export function useLocalChat() {
   // interpretación del turno → ejecución de tools.
   async function runTurn(text: string, hidden: boolean) {
     const trimmed = text.trim();
-    if (!trimmed || status !== "ready" || generatingRef.current) return;
+    if (!trimmed || statusRef.current !== "ready" || generatingRef.current) return;
     generatingRef.current = true;
     setError(null);
     const userMsg: ChatMessage = { role: "user", content: trimmed, hidden: hidden || undefined };
     commit((prev) => [...prev, userMsg, { role: "assistant", content: "", streaming: true }]);
-    setStatus("generating");
+    applyStatus("generating");
     try {
       // Historial para el LLM: system + últimos mensajes (sin el placeholder).
       const historyBase = messagesRef.current.slice(0, -1);
@@ -268,7 +278,7 @@ export function useLocalChat() {
         if (last >= 0) copy[last] = { ...copy[last], streaming: false, calls };
         return copy;
       });
-      setStatus("ready");
+      applyStatus("ready");
       setTurnAction("chat");
       await executeCalls(calls);
     } catch (err) {
@@ -277,7 +287,7 @@ export function useLocalChat() {
         const cleaned = prev.filter((m) => !(m.streaming && !m.content));
         return cleaned.map((m) => ({ ...m, streaming: false }));
       });
-      setStatus("ready");
+      applyStatus("ready");
       setError(
         err instanceof Error ? err.message : "La generación falló. Intenta de nuevo.",
       );
