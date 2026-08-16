@@ -19,9 +19,11 @@ import {
   MISSING_FIELDS,
   MISSING_LABELS,
   isLowQuality,
+  parseTurnState,
   stripMarkers,
   type AiPointDraft,
   type MissingField,
+  type TurnAction,
 } from "../../llm/prompt";
 import { searchAddress, type AddressResult } from "../AddressSearch";
 import {
@@ -243,6 +245,24 @@ function LoadingModel({
       )}
     </div>
   );
+}
+
+// Texto de respaldo cuando el modelo respondió SOLO con el JSON de estado
+// (sin frase visible): el estado sí parseó y la UI ya reaccionó (chips, mapa,
+// botón…), así que derivamos una frase de la acción para que la conversación
+// siga siendo fluida. Siempre con "Reintentar" por si la persona prefiere una
+// respuesta del modelo.
+function derivedAssistantText(action: TurnAction): string {
+  switch (action) {
+    case "ubicacion":
+      return "Vamos a marcar el lugar: búscalo aquí arriba o toca «Prefiero marcarlo en el mapa».";
+    case "confirmar":
+      return "Este es el resumen de tu punto: revísalo en la tarjeta y pulsa «Publicar ahora» cuando todo esté bien.";
+    case "listo":
+      return "¡Listo! Publicando ahora…";
+    default:
+      return "Ya lo tengo anotado. Cuéntame lo que falte.";
+  }
 }
 
 // Chips de progreso: qué ya se tiene (✓) y qué falta (○). Al tocar "ubicación"
@@ -1005,16 +1025,18 @@ export function AiChat({
             const text = isUser ? m.content : stripMarkers(m.content);
             // Mientras genera y aún no hay texto útil: se omite (indicador aparte).
             if (!isUser && m.streaming && isLowQuality(m.content)) return null;
-            // Terminó sin texto útil (vacío o basura como `"` o `{`): burbuja de
-            // respaldo con reintento — nunca ocultamos la respuesta.
+            // Terminó sin texto útil (vacío o basura como `"` o `{`). Si el JSON
+            // de estado sí parseó, derivamos una frase de la acción (el flujo
+            // sigue); si no, burbuja de respaldo con reintento.
             const useless = !isUser && !m.streaming && isLowQuality(m.content);
+            const state = useless ? parseTurnState(m.content) : null;
             return (
               <li key={i} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
                     isUser
                       ? "rounded-br-md bg-brand text-white"
-                      : "rounded-bl-md border border-gray-200 bg-white text-gray-700"
+                      : "rounded-bl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
                   }`}
                 >
                   {!useless ? (
@@ -1022,15 +1044,26 @@ export function AiChat({
                       {text}
                       {m.streaming && <span className="animate-blink">▍</span>}
                     </p>
-                  ) : (
+                  ) : state ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="italic text-gray-400">
-                        (el asistente no respondió nada útil)
+                      <p className="whitespace-pre-wrap break-words">
+                        {derivedAssistantText(state.action)}
                       </p>
                       <button
                         type="button"
                         onClick={retryLast}
-                        className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                        className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="italic text-gray-400">(el asistente no respondió nada útil)</p>
+                      <button
+                        type="button"
+                        onClick={retryLast}
+                        className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                       >
                         Reintentar
                       </button>

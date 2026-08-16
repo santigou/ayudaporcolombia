@@ -156,7 +156,7 @@ export function useLocalChat() {
             .map((m) => ({ role: m.role, content: m.content })),
         ];
         const streamIntoBubble = (onDelta2: (d: string) => void) =>
-          streamChat({ messages: buildHistory(), onDelta: onDelta2 });
+          streamChat({ messages: buildHistory(), maxTokens: 700, onDelta: onDelta2 });
         let full = await streamIntoBubble((delta) => {
           setMessages((prev) => {
             const copy = [...prev];
@@ -165,11 +165,13 @@ export function useLocalChat() {
             return copy;
           });
         });
-        // Los modelos de 1B a veces responden solo con marcadores, basura
-        // (una comilla o llave suelta) o nada. Reintentamos una vez con un
-        // recordatorio; la burbuja se limpia y la 2ª generación la ocupa.
-        if (isLowQuality(full)) {
-          console.debug("[ai-chat] respuesta sin texto visible, reintentando. Crudo:", full);
+        // Los modelos de 1B a veces responden SOLO con el JSON de estado (sin
+        // frase visible), basura o nada. Si el JSON sí parseó NO reintentamos
+        // (la UI deriva un texto de la acción y ahorramos segundos); si no hay
+        // nada aprovechable, reintentamos una vez con un recordatorio del
+        // formato. La burbuja se limpia y la 2ª generación la ocupa.
+        if (isLowQuality(full) && !parseTurnState(full)) {
+          console.debug("[ai-chat] respuesta sin texto útil ni estado, reintentando. Crudo:", full);
           setMessages((prev) => {
             const copy = [...prev];
             const last = copy.length - 1;
@@ -183,9 +185,10 @@ export function useLocalChat() {
               {
                 role: "user",
                 content:
-                  "Recordatorio: responde con una frase visible para la persona (reconoce + pregunta) y solo DESPUÉS añade los marcadores.",
+                  'Corrección: tu respuesta anterior no tuvo texto visible. Responde de nuevo: PRIMERO una frase breve y cálida en español (reconoce + UNA pregunta) y DESPUÉS, en la última línea, el JSON de estado {"a","f","p"}.',
               },
             ],
+            maxTokens: 700,
             onDelta: (delta) => {
               setMessages((prev) => {
                 const copy = [...prev];
