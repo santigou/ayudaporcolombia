@@ -12,6 +12,7 @@ import {
   AI_GREETING,
   buildAgentSystemPrompt,
   buildExtractionPrompt,
+  buildLugarSystemPrompt,
   extractContactsFromText,
   isDraftComplete,
   mergeDrafts,
@@ -228,6 +229,29 @@ export function useLocalChat() {
       }
       const hasLocation = uiCtxRef.current.hasLocation;
       const d = draftRef.current;
+      // Pasada ENFOCADA de lugar: el guion necesita la ubicación y el objeto
+      // principal no la trajo → antes de preguntar "¿dónde?", una mini-tarea
+      // dedicada SOLO a detectar el lugar (fiable incluso en modelos chicos).
+      // Evita repetir una pregunta que la persona ya respondió en su mensaje.
+      if (
+        !hasLocation &&
+        !obj?.lugar &&
+        nextMissingField(d, false) === "ubicacion" &&
+        draftRef.current?.locationQuery
+      ) {
+        obj = { ...obj, lugar: draftRef.current.locationQuery };
+      }
+      if (!hasLocation && !obj?.lugar && nextMissingField(d, false) === "ubicacion") {
+        const focused = parseAgentObject(
+          (
+            await generate([
+              { role: "system", content: buildLugarSystemPrompt() },
+              ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
+            ])
+          ).text,
+        );
+        if (focused?.lugar) obj = { ...obj, lugar: focused.lugar };
+      }
       let bubble: string;
       if (obj?.lugar && !hasLocation) {
         // La persona mencionó un lugar: geocodificar y proponer candidatos.

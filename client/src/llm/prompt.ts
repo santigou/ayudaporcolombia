@@ -201,7 +201,25 @@ export function buildAgentSystemPrompt(): string {
     '- "resumen": true cuando con lo anotado ya se puede publicar (hay título, descripción y contacto).',
     "- Si la persona aprueba o corrige el resumen, actualiza \"datos\" con los cambios.",
     "",
+    "EJEMPLO — Persona: «Perdí a mi perro Toby, un beagle, por el CAD de Castilla en Medellín» →",
+    '{"datos":{"type":"need_help","title":"Se perdió Toby, beagle, en Castilla","description":"Beagle llamado Toby perdido cerca al CAD de Castilla, Medellín, tras el sismo."},"lugar":"CAD de Castilla, Medellín"}',
+    "EJEMPLO — Persona: «sí, mi whatsapp es 320 123 4567» →",
+    '{"datos":{"contacts":[{"type":"whatsapp","value":"320 123 4567"}]}}',
+    "",
     "Responde solo con el JSON:",
+  ].join("\n");
+}
+
+// Pasada ENFOCADA de lugar: cuando el guion necesita la ubicación y el objeto
+// principal no la trajo (el modelo chico a veces omite "lugar" aunque la
+// persona lo haya dicho), esta mini-tarea sí la cumple con fiabilidad: SOLO
+// detectar si hay un lugar en la conversación. Con el mismo historial.
+export function buildLugarSystemPrompt(): string {
+  return [
+    "Detectas lugares mencionados por una persona en una conversación. Responde SOLO un objeto JSON de una línea:",
+    '{"lugar":"el sitio que mencionó la persona, tal cual lo dijo"}',
+    "o {} si NO mencionó ningún lugar (barrio, comuna, parque, institución, dirección o ciudad).",
+    "No inventes ni adivines lugares. Si mencionó una ciudad y un sitio, incluye ambos (ej. \"CAD de Castilla, Medellín\").",
   ].join("\n");
 }
 
