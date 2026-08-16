@@ -708,6 +708,7 @@ export function AiChat({
     onLocationPicked?.(r);
     void chat.send(`Ya definí la ubicación: ${r.label}. Sigue con lo que falte.`, {
       hasLocation: true,
+      synthetic: true,
     });
   }
 

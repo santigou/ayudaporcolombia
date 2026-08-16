@@ -194,7 +194,7 @@ export function buildAgentSystemPrompt(): string {
     '{"datos":{"type":"need_help|offer_help","helpType":"Refugio|Alimentos|Agua|Médico|Otro","title":"anuncio corto","description":"detalles","supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}],"contacts":[{"type":"phone|whatsapp|instagram|email|other","value":"…"}]},"lugar":"sitio que mencionó","pedir":"que_paso|ayuda|ubicacion|contacto|fotos","resumen":true}',
     "",
     "Reglas:",
-    '- "datos": SOLO campos con información que la persona haya dado (su último mensaje o algo aún no anotado). "title": anuncio autónomo, máximo 100 caracteres. "description": todos los detalles útiles. Nunca inventes: usa únicamente lo que la persona dijo.',
+    '- "datos": SOLO campos con información que la persona haya dado (su último mensaje o algo aún no anotado). "title": anuncio corto, una sola frase, sin repetir información. "description": todos los detalles útiles, sin frases repetidas. Copia nombres propios, instituciones y lugares EXACTAMENTE como los escribió la persona (ej. «CAD de Castilla», no «Casco de Castilla»). Nunca inventes: usa únicamente lo que la persona dijo.',
     "- NUNCA inventes contactos, teléfonos, emails ni URLs: si la persona no dio un contacto, deja \"contacts\" vacío. No conviertas un @handle en email.",
     '- "lugar": si la persona mencionó dónde (aunque sea vago: barrio, comuna, ciudad), ponlo tal cual lo dijo.',
     '- "type": "offer_help" SOLO si la persona OFRECE ayuda; si busca o necesita, "need_help".',
@@ -243,7 +243,7 @@ export function buildVerifierSystemPrompt(draft: AiPointDraft | null): string {
     "Eres un verificador de datos. Comparas el BORRADOR con la conversación de la persona y respondes SOLO un JSON de una línea:",
     '{"datos":{…},"lugar":"…"}',
     "Reglas:",
-    "- Corrige o completa los campos del borrador que estén VACÍOS, incompletos o con errores, usando ÚNICAMENTE lo que la persona dijo (sus palabras exactas cuando sea posible).",
+    "- Corrige o completa los campos del borrador que estén VACÍOS, incompletos o con errores, usando ÚNICAMENTE lo que la persona dijo (sus palabras exactas cuando sea posible). Copia nombres propios y lugares EXACTAMENTE como los escribió. Título: una frase corta sin repetir. Descripción: sin frases repetidas.",
     '- "lugar": el sitio que la persona mencionó (barrio, comuna, institución o ciudad), tal cual lo dijo.',
     "- NO inventes contactos, teléfonos, emails ni URLs. NO conviertas un @handle en email.",
     "- Si el borrador ya está completo y correcto según la conversación, responde {}.",
@@ -448,6 +448,16 @@ function normForMatch(s: string): string {
     .trim();
 }
 
+// Tokens de comparación: normalizados y SIN puntuación de bordes (los puntos
+// se permiten en normForMatch para emails/handles, pero «toby.» ≠ «toby» y
+// rompería tanto la trazabilidad como la deduplicación).
+function tokens(s: string): string[] {
+  return normForMatch(s)
+    .split(" ")
+    .map((w) => w.replace(/^[._@-]+|[._-]+$/g, ""))
+    .filter((w) => w.length >= 3);
+}
+
 // Palabra rastreable: prefijo de 4+ caracteres (tolera inflexiones del
 // español: «perdí» ↔ «perdido»); cortas exigen coincidencia exacta.
 function wordMatches(word: string, hay: string): boolean {
@@ -456,7 +466,7 @@ function wordMatches(word: string, hay: string): boolean {
 }
 
 function overlapRatio(text: string, hay: string): number {
-  const words = normForMatch(text).split(" ").filter((w) => w.length >= 3);
+  const words = tokens(text);
   if (words.length === 0) return 0;
   const hits = words.filter((w) => wordMatches(w, hay)).length;
   return hits / words.length;
@@ -493,11 +503,83 @@ export function sanitizeDraftAgainstText(d: AiPointDraft, userText: string): AiP
   const descOK = desc.length >= 10 && overlapRatio(desc, hay) >= 0.4;
   return {
     ...d,
-    title: titleOK ? d.title : "",
-    description: descOK ? d.description : "",
+    title: titleOK ? condenseTitle(d.title) : "",
+    description: descOK ? condenseDescription(d.description) : "",
     supplies: d.supplies.filter((s) => hayCompact.includes(normForMatch(s.name).replace(/\s/g, ""))),
     contacts: d.contacts.filter((c) => contactTraceable(c, hay, hayCompact, hayDigits)),
   };
+}
+
+// ── Condensación determinista de texto repetitivo ───────────────────────────
+// El modelo a veces genera frases redundantes con palabras rastreables
+// («Beagle llamado Toby, un beagle… es un perro que es un beagle»): pasan la
+// anti-fabricación pero son basura. Se condensa sin recurrir al modelo.
+
+function sentences(t: string): string[] {
+  return t
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function wordSet(s: string): Set<string> {
+  return new Set(tokens(s));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+// Título: primera frase, sin palabras duplicadas consecutivas, recortado a
+// límite de palabras (sin cortar a medias) con elipsis si hace falta.
+export function condenseTitle(t: string, max = 90): string {
+  const first = sentences(t)[0] ?? t;
+  const deduped = first.replace(/\b(\w+) \1\b/gi, "$1").trim();
+  if (deduped.length <= max) return deduped;
+  const cut = deduped.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
+}
+
+// Descripción: colapsa palabras consecutivas repetidas, elimina frases casi
+// duplicadas (Jaccard ≥ 0.55) y frases PARÁFRASIS (aportan ≤1 palabra
+// significativa nueva tras quitar genéricas: «Es un perro que es un beagle y
+// su nombre es Toby» no aporta nada nuevo y se elimina).
+const GENERIC_WORDS = new Set([
+  "que", "es", "son", "era", "un", "una", "del", "al", "los", "las", "le", "lo",
+  "y", "o", "su", "sus", "se", "con", "por", "para", "como", "mas", "muy", "ya",
+  "no", "si", "este", "esta", "eso", "tiene", "hay", "fue", "llama", "llamado",
+  "llamada", "nombre", "encuentra", "encontraba", "esta", "estaba", "tambien",
+]);
+
+function significantWords(s: string): Set<string> {
+  return new Set(tokens(s).filter((w) => !GENERIC_WORDS.has(w)));
+}
+
+export function condenseDescription(d: string, max = 600): string {
+  const collapsed = d.replace(/\b(\w+) \1\b/gi, "$1");
+  const kept: string[] = [];
+  let keptWords = new Set<string>();
+  const keptSets: Set<string>[] = [];
+  for (const s of sentences(collapsed)) {
+    const ws = wordSet(s);
+    if (keptSets.some((k) => jaccard(k, ws) >= 0.55)) continue;
+    const sig = significantWords(s);
+    let news = 0;
+    for (const w of sig) if (!keptWords.has(w)) news++;
+    if (news <= 1) continue; // paráfrasis: no aporta información nueva
+    kept.push(s);
+    keptSets.push(ws);
+    keptWords = new Set([...keptWords, ...sig]);
+  }
+  const out = kept.join(" ");
+  if (out.length <= max) return out;
+  const cut = out.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
 }
 
 // ── Contactos deterministas: extraídos por regex del texto de la persona ────

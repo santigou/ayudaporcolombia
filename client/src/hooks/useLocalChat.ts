@@ -7,7 +7,7 @@ import {
   streamChat,
 } from "../llm/engine";
 import { loadSavedModelId, saveModelId } from "../llm/models";
-import { searchAddress, type AddressResult } from "../components/AddressSearch";
+import { searchAddress, expandMention, rankByQuery, type AddressResult } from "../components/AddressSearch";
 import {
   AI_GREETING,
   buildAgentSystemPrompt,
@@ -45,6 +45,11 @@ export interface ChatMessage {
 // modelo no lo necesita porque las preguntas las escribe la app).
 export interface ChatUiContext {
   hasLocation: boolean;
+  // true cuando el texto lo generó la APP (ej. confirmación de ubicación con
+  // la etiqueta larga del geocoder): se muestra y va al contexto del LLM, pero
+  // NO cuenta como palabras de la persona para la anti-fabricación (evita que
+  // nombres de regiones de OSM como «RAP del Agua» validen suministros).
+  synthetic?: boolean;
 }
 
 export type LocalChatStatus =
@@ -152,13 +157,14 @@ export function useLocalChat() {
   // Un intercambio: mensaje (visible u oculto) → el modelo estructura en JSON
   // (nunca escribe prosa visible) → la app decide la pregunta/resumen según su
   // guion determinista. El chat no puede salirse del guion.
-  async function runTurn(text: string, hidden: boolean) {
+  async function runTurn(text: string, hidden: boolean, synthetic = false) {
     const trimmed = text.trim();
     if (!trimmed || statusRef.current !== "ready" || generatingRef.current) return;
     generatingRef.current = true;
     setError(null);
     const userMsg: ChatMessage = { role: "user", content: trimmed, hidden: hidden || undefined };
-    if (!hidden) userTextRef.current += ` ${trimmed}`;
+    // Solo las palabras REALES de la persona alimentan la anti-fabricación.
+    if (!hidden && !synthetic) userTextRef.current += ` ${trimmed}`;
     commit((prev) => [...prev, userMsg, { role: "assistant", content: "", streaming: true }]);
     applyStatus("generating");
     try {
@@ -274,17 +280,25 @@ export function useLocalChat() {
       }
       let bubble: string;
       if (obj?.lugar && !hasLocation) {
-        // La persona mencionó un lugar: geocodificar y proponer candidatos.
-        const results = await searchAddress(obj.lugar);
-        if (results.length > 0) {
-          setLocationCandidates(results);
+        // La persona mencionó un lugar: geocodificar el SINTAGMA COMPLETO de
+        // su texto (ej. «casd de castilla en medellin», no solo «Castilla»:
+        // la mención recortada cae en el centro de la comuna, lejos del sitio
+        // real) con fallback a la mención corta, y rankear por coincidencia.
+        const full = expandMention(userTextRef.current, obj.lugar);
+        let results = await searchAddress(full);
+        if (results.length === 0 && full !== obj.lugar) {
+          results = await searchAddress(obj.lugar);
+        }
+        const ranked = rankByQuery(results, full);
+        if (ranked.length > 0) {
+          setLocationCandidates(ranked);
           setAskLocation(true);
           bubble =
-            results.length === 1
-              ? `Encontré el lugar para «${obj.lugar}»: confírmalo para marcarlo en el mapa.`
-              : `Encontré ${results.length} lugares para «${obj.lugar}»: elige el correcto para marcarlo en el mapa.`;
+            ranked.length === 1
+              ? `Encontré el lugar para «${full}»: confírmalo para marcarlo en el mapa.`
+              : `Encontré ${ranked.length} lugares para «${full}»: elige el correcto para marcarlo en el mapa.`;
         } else {
-          bubble = placeNotFoundQuestion(obj.lugar);
+          bubble = placeNotFoundQuestion(full);
         }
       } else {
         // Guion: qué pasó → ubicación → contacto → tipo de ayuda → resumen.
@@ -380,10 +394,14 @@ export function useLocalChat() {
   }, []);
 
   // Envío visible de la persona. `ctx` lleva el estado de la UI (ubicación
-  // elegida) para que el guion determinista decida el siguiente paso.
+  // elegida; `synthetic` si el texto lo escribió la app) para el guion.
   const send = useCallback(async (text: string, ctx?: ChatUiContext) => {
-    if (ctx) uiCtxRef.current = ctx;
-    await runTurn(text, false);
+    if (ctx) {
+      uiCtxRef.current = { hasLocation: ctx.hasLocation };
+      await runTurn(text, false, ctx.synthetic === true);
+    } else {
+      await runTurn(text, false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

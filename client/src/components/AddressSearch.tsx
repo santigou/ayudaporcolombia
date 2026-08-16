@@ -114,6 +114,125 @@ export function shortPlaceLabel(label: string, max = 72): string {
   return out || label;
 }
 
+// EXPANSIÓN de la mención de lugar al sintagma COMPLETO del texto real.
+// El modelo recorta la mención («casd de castilla en medellín» → «Castilla»)
+// y el geocoder devuelve el centro de la comuna, lejos del sitio real. Aquí se
+// recupera el sintagma: se localiza `lugar` en el texto y se extiende a
+// izquierda/derecha mientras sean parte del nombre (conectores de/la/el y
+// «en <ciudad>» como contexto), sin cruzar artículos, preposiciones o verbos.
+const EXPAND_CONNECTORS = new Set(["de", "del", "la", "el", "los", "las"]);
+const EXPAND_GAPS = new Set(["de", "del", "la", "el", "los", "las", "en", "a", "al", "y", "o"]);
+const EXPAND_STOP = new Set([
+  "el", "la", "los", "las", "un", "una", "unos", "unas", "por", "en", "con",
+  "para", "que", "y", "o", "se", "lo", "le", "es", "fue", "al", "a", "mi",
+  "mis", "su", "sus", "hay", "esta", "estoy", "vivo", "perdi", "perdio",
+]);
+
+function normTokensForSearch(s: string): string[] {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+const isSignificant = (t: string) => t.length >= 3 && !EXPAND_GAPS.has(t);
+
+// `lugar` (p. ej. «Castilla» o «Castilla, Medellín») → sintagma completo del
+// texto («casd de castilla en medellin»). El matching es sobre tokens
+// SIGNIFICATIVOS del lugar, permitiendo huecos de conectores en el texto
+// («castilla en medellín»); si no aparece, se devuelve tal cual.
+export function expandMention(rawText: string, lugar: string): string {
+  const textTokens = normTokensForSearch(rawText);
+  const lugarSig = normTokensForSearch(lugar).filter(isSignificant);
+  if (textTokens.length === 0 || lugarSig.length === 0) return lugar;
+  // Localiza la primera aparición de la secuencia significativa (en orden,
+  // con conectores como huecos). Devuelve [inicio, fin] sobre el texto.
+  let span: [number, number] | null = null;
+  for (let i = 0; i < textTokens.length && !span; i++) {
+    if (textTokens[i] !== lugarSig[0] && !textTokens[i].startsWith(lugarSig[0].slice(0, 4))) {
+      continue;
+    }
+    let j = i + 1;
+    let ok = true;
+    for (let k = 1; k < lugarSig.length; k++) {
+      while (j < textTokens.length && !isSignificant(textTokens[j])) j++;
+      if (
+        j >= textTokens.length ||
+        (textTokens[j] !== lugarSig[k] && !textTokens[j].startsWith(lugarSig[k].slice(0, 4)))
+      ) {
+        ok = false;
+        break;
+      }
+      j++;
+    }
+    if (ok) span = [i, j];
+  }
+  if (!span) return lugar;
+  let [start, end] = span;
+  // Izquierda: conectores y sustantivos forman parte del nombre; artículos,
+  // preposiciones y verbos cortan (sin incluirse).
+  while (start > 0) {
+    const prev = textTokens[start - 1];
+    if (EXPAND_CONNECTORS.has(prev)) {
+      if (start - 2 >= 0) {
+        start--;
+        continue;
+      }
+      break;
+    }
+    if (isSignificant(prev) && !EXPAND_STOP.has(prev)) {
+      start--;
+      continue;
+    }
+    break;
+  }
+  while (start < span[0] && EXPAND_CONNECTORS.has(textTokens[start])) start++;
+  // Derecha: «de/el X», «en <ciudad>» o una ciudad pegada al final.
+  while (end < textTokens.length) {
+    const tok = textTokens[end];
+    const next = end + 1 < textTokens.length ? textTokens[end + 1] : null;
+    if (EXPAND_CONNECTORS.has(tok) && next && isSignificant(next) && !EXPAND_STOP.has(next)) {
+      end += 2;
+      continue;
+    }
+    if (tok === "en" && next && isSignificant(next) && !EXPAND_STOP.has(next)) {
+      end += 2;
+      continue;
+    }
+    // Ciudad pegada sin preposición («castilla medellin»): solo si después
+    // no sigue otra palabra de contenido (fin de frase o token de corte).
+    if (
+      isSignificant(tok) &&
+      !EXPAND_STOP.has(tok) &&
+      !EXPAND_GAPS.has(tok) &&
+      (next === null || !isSignificant(next) || EXPAND_STOP.has(next))
+    ) {
+      end += 1;
+      continue;
+    }
+    break;
+  }
+  const out = textTokens.slice(start, end).join(" ").trim();
+  return out.length >= lugar.trim().length ? out : lugar;
+}
+
+export function rankByQuery(results: AddressResult[], query: string): AddressResult[] {
+  const qTokens = normTokensForSearch(query).filter((t) => t.length >= 3);
+  if (qTokens.length === 0) return results;
+  const scored = results.map((r) => {
+    const hay = normTokensForSearch(r.label).join(" ");
+    let score = 0;
+    for (const t of qTokens) if (hay.includes(t.slice(0, 4))) score++;
+    return { r, score };
+  });
+  // Estable: conserva el orden de Nominatim entre empates.
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.r);
+}
+
 export function AddressSearch({ onSelect }: AddressSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AddressResult[]>([]);
