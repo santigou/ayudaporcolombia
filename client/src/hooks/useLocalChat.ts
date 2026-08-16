@@ -20,12 +20,16 @@ import {
   asksLocation,
   buildExtractionPrompt,
   buildSystemPrompt,
+  isDraftComplete,
   isLowQuality,
+  mergeDrafts,
   parseMissing,
   parsePointDraft,
+  parseTurnState,
   stripMarkers,
   type AiPointDraft,
   type MissingField,
+  type TurnAction,
 } from "../llm/prompt";
 
 export type ChatRole = "user" | "assistant";
@@ -68,6 +72,13 @@ export function useLocalChat() {
   // re-extraer (y pisar ediciones de la tarjeta) si el modelo repite [[LISTO]]
   // sin que haya mensajes nuevos.
   const extractedAtRef = useRef(0);
+  // Borrador acumulado en vivo a partir de los JSON {"p"} de cada turno: la
+  // tarjeta editable puede mostrarse antes de terminar la entrevista.
+  const [draft, setDraft] = useState<AiPointDraft | null>(null);
+  const draftRef = useRef<AiPointDraft | null>(null);
+  // Acción del último turno (JSON "a"): guía la UI (abrir el mapa, botón de
+  // publicar, auto-publicar).
+  const [turnAction, setTurnAction] = useState<TurnAction>("chat");
 
   const webgpuSupported = useMemo(() => isWebGPUSupported(), []);
   // Guarda de re-entrada: evita dobles envíos en el mismo tick.
@@ -194,18 +205,46 @@ export function useLocalChat() {
           return copy;
         });
         setStatus("ready");
-        // Marcadores de control de esta respuesta (UI del chat).
-        setAskLocation(asksLocation(full));
-        setConfirming(asksConfirmation(full));
-        const miss = parseMissing(full);
+        // Estado del turno: JSON {"a","f","p"} (primario) con fallback a los
+        // marcadores legacy [[…]] si el modelo no emitió un JSON válido.
+        const ts = parseTurnState(full);
+        const action: TurnAction = ts
+          ? ts.action
+          : asksLocation(full)
+            ? "ubicacion"
+            : asksConfirmation(full)
+              ? "confirmar"
+              : asksDone(full)
+                ? "listo"
+                : "chat";
+        // Acumula el borrador en vivo con lo que reportó este turno (clave "p").
+        if (ts?.draft) {
+          draftRef.current = draftRef.current
+            ? mergeDrafts(draftRef.current, ts.draft)
+            : ts.draft;
+          setDraft(draftRef.current);
+        }
+        setTurnAction(action);
+        setAskLocation(action === "ubicacion");
+        setConfirming(action === "confirmar");
+        const miss = ts?.missing ?? parseMissing(full);
         if (miss) setMissing(miss);
-        // El modelo cerró con [[LISTO]] (el usuario aprobó): extraemos el punto
-        // con una SEGUNDA llamada dedicada (ver buildExtractionPrompt). El chat
-        // nunca genera JSON → menos divagaciones de los modelos chicos.
+        // Resumen listo: exponemos el borrador acumulado para la tarjeta
+        // editable y su botón "Publicar ahora" (la persona aprueba publicando).
+        if (action === "confirmar" && draftRef.current) {
+          setExtracted(draftRef.current);
+        }
+        // Cierre aprobado ("listo"): publicamos con lo acumulado si ya está
+        // completo; si no, la 2ª llamada de extracción actúa de respaldo (ver
+        // buildExtractionPrompt).
         const totalMsgs = messages.length + 2; // + mensaje del usuario + respuesta
-        if (asksDone(full) && extractedAtRef.current !== totalMsgs) {
+        if (action === "listo" && extractedAtRef.current !== totalMsgs) {
           setConfirming(false);
-          // Transcripción limpia (sin marcadores) para el extractor.
+          if (isDraftComplete(draftRef.current)) {
+            setExtracted(draftRef.current);
+            extractedAtRef.current = totalMsgs;
+          } else {
+          // Transcripción limpia (sin marcadores ni JSON) para el extractor.
           const transcript = [...messages, userMsg, { role: "assistant" as const, content: full }]
             .map((m) => {
               const body = m.role === "user" ? m.content : stripMarkers(m.content);
@@ -248,6 +287,7 @@ export function useLocalChat() {
           } finally {
             setExtracting(false);
           }
+          }
         }
       } catch (err) {
         // Descarta la burbuja del asistente si no llegó nada y desbloquea.
@@ -280,6 +320,9 @@ export function useLocalChat() {
     setConfirming(false);
     setMissing([]);
     setExtracting(false);
+    draftRef.current = null;
+    setDraft(null);
+    setTurnAction("chat");
   }, []);
 
   const dismissExtracted = useCallback(() => setExtracted(null), []);
@@ -291,9 +334,12 @@ export function useLocalChat() {
     modelId,
     models,
     messages,
+    // Borrador acumulado en vivo (JSON "p" de cada turno) y extracción final.
+    draft,
     extracted,
     askLocation,
     confirming,
+    turnAction,
     missing,
     extracting,
     webgpuSupported,

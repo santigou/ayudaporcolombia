@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { MapView } from "../MapView";
 import { reverseGeocode, type AddressResult } from "../AddressSearch";
-import { api, ApiError, uploadFile } from "../../api/client";
+import { ApiError } from "../../api/client";
+import { publishPoint } from "../../api/points";
 import { useAuth } from "../../context/AuthContext";
 import { useLoginModal } from "../../context/LoginModalContext";
 import {
@@ -267,33 +268,19 @@ export function CreateWizard() {
       .map((c) => ({ type: c.type, value: c.value.trim() }))
       .filter((c) => c.value);
 
-    // Suministros válidos: nombre no vacío y no duplicado (case-insensitive).
-    const validSupplies = supplies
-      .map((s) => ({ name: s.name.trim(), targetQuantity: s.targetQuantity ?? undefined, unit: s.unit ?? undefined }))
-      .filter((s) => s.name.length >= 2);
-
     setSubmitting(true);
     try {
-      // 1) Subir fotos directamente al almacenamiento (presign + PUT).
-      //    Los bytes no pasan por el backend: van al CDN de SeaweedFS (prod)
-      //    o a disco (dev).
-      const photoUrls = await Promise.all(
-        photos.slice(0, MAX_PHOTOS).map(async (f) => {
-          const { uploadUrl, publicUrl, headers } = await api.presignUpload(f.name, f.type);
-          await uploadFile(uploadUrl, f, headers);
-          return publicUrl;
-        }),
-      );
-      // 2) Crear el punto con JSON (sin multipart).
-      const created = await api.post<{ code: string }>("/points", {
+      // Fotos → presign+PUT; punto → POST /points. Helper compartido con el
+      // chat IA (client/src/api/points.ts): un solo lugar para publicar.
+      const created = await publishPoint({
         type,
-        title: title.trim(),
-        description: description.trim(),
-        locations: validLocations,
+        title,
+        description,
         helpTypeName: helpType, // obligatorio para ambos tipos
+        locations: validLocations,
         contacts: validContacts,
-        ...(validSupplies.length > 0 ? { supplies: validSupplies } : {}),
-        photoUrls,
+        supplies,
+        photos,
       });
       setCreated({ type, code: created.code });
       clearDraft(); // publicado con éxito: ya no hace falta el borrador
@@ -401,6 +388,17 @@ export function CreateWizard() {
             onApply={applyAiDraft}
             onExit={exitChat}
             requestMapPick={requestMapPick}
+            onLocationPicked={(r) => {
+              // Mapa en vivo: mientras el chat define la ubicación, el marcador
+              // aparece de inmediato en el mapa de fondo (pickedLocations).
+              updateLocation(0, {
+                lat: r.lat,
+                lng: r.lng,
+                addressText: r.label,
+                city: r.city ?? "",
+                neighborhood: r.neighborhood ?? "",
+              });
+            }}
             onClose={() => {
               clearDraft();
               navigate("/");

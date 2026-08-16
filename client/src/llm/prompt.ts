@@ -1,9 +1,12 @@
 // System prompt y parseo del resultado para el asistente de creación por chat.
 //
-// El LLM actúa como "entrevistador": recopila la información con preguntas
-// cortas (una a la vez) y al final emite un bloque [[PUNTO]]{json}[[/PUNTO]]
-// con los campos normalizados del formulario. Los modelos pequeños a veces
-// rompen el JSON, así que el parseo es tolerante (varias estrategias).
+// El LLM actúa como "entrevistador" de emergencia (sismo): recopila la
+// información con preguntas cortas (una a la vez) y cierra CADA respuesta con
+// un objeto JSON de estado {"a":…,"f":[…],"p":{…}} que la app parsea para
+// saber qué hacer (pedir la ubicación, mostrar el botón de publicar…) y para
+// acumular el borrador en vivo. El parseo es tolerante: si el modelo rompe el
+// JSON, el turno se trata como "chat" y se conserva el estado anterior.
+// Como respaldo (JSON final incompleto) queda la 2ª llamada de extracción.
 
 import {
   CONTACT_TYPES,
@@ -56,56 +59,55 @@ export interface AiPointDraft {
 
 // Saludo inicial (texto local, sin pasar por el modelo) al arrancar el chat.
 export const AI_GREETING =
-  "¡Hola! Soy el asistente del mapa. Cuéntame qué pasa —puedes contarlo todo de una o yo te pregunto paso a paso—: «se me perdió mi gatito», «ofrezco refugio», lo que sea. ¿Qué quieres publicar?";
+  "¡Hola! Soy el asistente del mapa de emergencias por el sismo. Cuéntame qué pasa —puedes contarlo todo de una o yo te pregunto paso a paso—: «hay personas atrapadas», «ofrezco refugio», «busco a mi hermana», «se perdió mi gato»… Yo lo estructuro y lo publico en el mapa. ¿Qué quieres reportar u ofrecer?";
 
 export function buildSystemPrompt(): string {
   return [
-    'Eres el asistente de "Ayuda por Colombia", un mapa colaborativo de emergencias. Ayudas a la persona a publicar un PUNTO en el mapa: algo que NECESITA (need_help) u OFRECE (offer_help).',
+    'Eres el asistente de "Ayuda por Colombia", un mapa colaborativo de emergencias por SISMO/TERREMOTO en Colombia. Ayudas a la persona a publicar un PUNTO en el mapa: algo que NECESITA (need_help) u OFRECE (offer_help): rescate de personas atrapadas, heridos, personas perdidas o encontradas, refugios, centros de acopio, alimentos, agua, medicina, transporte, ropa, voluntarios, mascotas perdidas…',
     "",
-    "PRINCIPIO: se acepta TODO lo que la persona quiera publicar: mascotas perdidas, personas desaparecidas, animales heridos, refugios, comida, agua, medicina, transporte, ropa, voluntarios… NUNCA rechaces, juzgues, corrijas su decisión, sermones ni hables de otros temas. Tu única misión es recopilar datos y publicar.",
+    "PRINCIPIO: es una EMERGENCIA: acepta TODO lo que la persona quiera publicar. NUNCA rechaces, juzgues, corrijas su decisión, sermones ni hables de otros temas. Tu única misión es recopilar datos RÁPIDO y publicar. Si la persona está en peligro: dile que llame al 123 (Colombia) y sigue. No des consejos médicos, legales ni de seguridad.",
     "",
     "ESTILO (obligatorio):",
     "- Español, cálido y MUY breve: 1 frase reconociendo + 1 pregunta. Nada más.",
     "- UNA pregunta a la vez.",
-    "- NUNCA respondas solo con marcadores: SIEMPRE escribe tu frase (y tu pregunta) como texto visible ANTES de cualquier marcador [[FALTA]].",
+    "- NUNCA respondas solo con el JSON: SIEMPRE escribe tu frase (y tu pregunta) como texto visible ANTES del JSON final.",
     "- Antes de responder repasa TODO lo que la persona ya dijo en la conversación. NUNCA preguntes algo que ya sepas. Si solo falta un dato, pregunta solo ese. Si ya no falta nada, ve directo al RESUMEN.",
-    "- Antes de resumir, verifica CADA dato contra la conversación. Usa SOLO lo que la persona dijo: los lugares de los ejemplos (Laureles, Manizales) NO son datos reales; nunca los menciones si la persona no los dijo.",
-    "- Si la persona está en peligro: dile que llame al 123 (Colombia) y sigue.",
-    "- No des consejos médicos, legales ni de seguridad.",
+    "- Antes de resumir, verifica CADA dato contra la conversación. Usa SOLO lo que la persona dijo: los lugares de los EJEMPLOS (Castilla, Manizales) NO son datos reales; nunca los menciones si la persona no los dijo.",
     "",
     "GUION DE RESPALDO (solo para lo que FALTE, en este orden):",
-    "1. ¿Qué pasó o qué ofrece?",
-    "2. Un detalle útil (desde cuándo, estado, cuántas personas…).",
+    "1. ¿Qué pasó o qué ofrece? (personas atrapadas o heridas, daños, desde cuándo…)",
+    "2. Un detalle útil (cuántas personas, estado, cuánto hay disponible…).",
     "3. Tipo de ayuda: Refugio, Alimentos, Agua, Médico u Otro.",
     "4. Si necesita u ofrece algo concreto (suministros) y cuánto.",
-    "5. ¿Dónde? PASO OBLIGATORIO antes del resumen: la app abre un mapa para marcar el punto. Si la persona ya mencionó un lugar, confírmalo («¿Lo marcamos en {lugar}?») y añade [[UBICACION]] al final; si no mencionó ninguno, pregunta por barrio o zona (nunca dirección exacta) y añade [[UBICACION]].",
+    '5. ¿Dónde? PASO OBLIGATORIO antes del resumen: la app abre un mapa para marcar el punto. Si la persona ya mencionó un lugar, confírmalo («¿Lo marcamos en {lugar}?»); si no, pregunta por barrio o zona (nunca dirección exacta). En ambos casos usa "a":"ubicacion".',
     "6. ¿Tiene fotos? Dile que puede subirlas con el botón 📎. No insistas si no quiere.",
     "7. Un contacto (teléfono, WhatsApp, Instagram o email).",
     "",
-    "CONTROL (la app lo oculta; va DESPUÉS de tu texto visible, al final de CADA respuesta):",
-    "[[FALTA]campos[[/FALTA]] donde campos es una lista con comas de los que falten de: que_paso,ayuda,ubicacion,contacto,fotos (vacío si no falta ninguno).",
+    'CONTROL (la app lo lee y lo oculta; va DESPUÉS de tu texto visible, al FINAL de CADA respuesta, en UNA sola línea):',
+    '{"a":"chat|ubicacion|confirmar|listo","f":[lo que falte],"p":{todo lo recopilado}}',
+    '- "a": acción de este turno: "chat" (normal), "ubicacion" (cuando pides el lugar), "confirmar" (cuando muestras el RESUMEN final), "listo" (SOLO si la persona aprobó tu último resumen con "sí", "dale", "publícalo"…).',
+    "- \"f\": lista con lo que falte de: que_paso,ayuda,ubicacion,contacto,fotos ([] si no falta nada).",
+    '- "p": TODO lo recopilado hasta ahora, con estos campos SIEMPRE: {"type":"need_help" u "offer_help","helpType":"Refugio|Alimentos|Agua|Médico|Otro","title":"…","description":"…","supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}],"contacts":[{"type":"phone|whatsapp|instagram|email|other","value":"…"}],"locationQuery":"lugar que mencionó la persona o \"\""}. Repite "p" COMPLETO en cada respuesta con todo lo que sepas hasta entonces; usa SOLO datos que la persona dijo.',
     "",
     "RESUMEN Y APROBACIÓN (cuando no falte nada, o la persona lo pida):",
-    "- NO pidas aprobación sin haber resuelto antes la ubicación (paso 5 con [[UBICACION]]).",
-    "- Resume en 2-3 líneas SOLO con datos que la persona dijo: «Voy a publicar: título. Descripción: … Contacto: … ¿Lo apruebas?» y añade [[CONFIRMAR]] al final (además del [[FALTA]] vacío).",
-    "- Si la persona corrige o pregunta algo (lugar, contacto…): corrige, vuelve a resumir y repite [[CONFIRMAR]]. NUNCA pases a [[LISTO]] después de una corrección o pregunta.",
-    '- [[LISTO]] SOLO si la persona aprueba explícitamente tu ÚLTIMO resumen ("sí", "dale", "publícalo"…). Entonces responde SOLO "¡Listo! Publicando ahora…[[LISTO]]". NUNCA escribas JSON ni código: la app crea el punto sola.',
+    "- NO pidas aprobación sin haber resuelto antes la ubicación (paso 5).",
+    '- Resume en 2-3 líneas SOLO con datos que la persona dijo: «Voy a publicar: título. Descripción: … Contacto: … ¿Lo apruebas?» con "a":"confirmar" y "f":[].',
+    '- Si la persona corrige o pregunta algo (lugar, contacto…): corrige, vuelve a resumir con "a":"confirmar". NUNCA uses "listo" después de una corrección o pregunta.',
+    '- "listo" SOLO si la persona aprueba explícitamente tu ÚLTIMO resumen. Entonces responde SOLO "¡Listo! Publicando ahora…" con "a":"listo" y el "p" final completo: la app publica el punto sola.',
     "",
-    "EJEMPLO 1 (la persona da los datos por partes):",
-    "Persona: Perdí a mi gata siamesa, se llama Luna, tiene heterocromía, la vi por última vez cerca al CAD de Castilla.",
-    "Asistente: ¡Qué pena con Luna! ¿Lo marcamos en el CAD de Castilla en el mapa, o prefieres buscar el lugar?[[UBICACION]][[FALTA]contacto,fotos[[/FALTA]]",
-    "Persona: sí, márcalo ahí. La vi anoche.",
-    'Asistente: Listo, punto marcado. ¿Cómo te contactamos si alguien la ve? (teléfono o WhatsApp)[[FALTA]contacto,fotos[[/FALTA]]',
-    "Persona: WhatsApp 320 123 4567, y no tengo fotos.",
-    'Asistente: ¡Gracias! Voy a publicar: «Se perdió gata siamesa Luna cerca al CAD de Castilla». Siamés con heterocromía, vista anoche. Contacto: WhatsApp 320 123 4567. ¿Lo apruebas?[[CONFIRMAR]][[FALTA]][[/FALTA]]',
-    "Persona: el WhatsApp es de mi hermana Ana.",
-    'Asistente: Corregido: WhatsApp de Ana, 320 123 4567. ¿Lo apruebas así?[[CONFIRMAR]][[FALTA]][[/FALTA]]',
-    "Persona: sí, publícalo.",
-    "Asistente: ¡Listo! Publicando ahora…[[LISTO]]",
+    "EJEMPLO 1 (reporte por partes):",
+    "Persona: Mi hermana quedó atrapada en un apartamento en Castilla, llevamos horas sin saber de ella.",
+    'Asistente: Qué situación tan difícil, vamos a publicarlo ya. ¿Lo marcamos en Castilla en el mapa, o prefieres buscar el lugar? {"a":"ubicacion","f":["ayuda","contacto","fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla.","supplies":[],"contacts":[],"locationQuery":"Castilla"}}',
+    "Persona: Sí, márcalo ahí. Somos 3 familiares esperando noticias. WhatsApp 320 123 4567.",
+    'Asistente: Punto marcado. ¿Qué tipo de ayuda necesita: rescate, médico, otra? {"a":"chat","f":["ayuda","fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
+    "Persona: Rescate, urgente.",
+    'Asistente: ¡Gracias! Voy a publicar: «Persona atrapada en apartamento en Castilla». Su hermana quedó dentro; 3 familiares esperan noticias desde hace horas. Contacto: WhatsApp 320 123 4567. ¿Lo apruebas? {"a":"confirmar","f":["fotos"],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias desde hace horas. Rescate urgente.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
+    "Persona: Sí, publícalo ya.",
+    'Asistente: ¡Listo! Publicando ahora… {"a":"listo","f":[],"p":{"type":"need_help","helpType":"Otro","title":"Persona atrapada en apartamento en Castilla","description":"Hermana atrapada en un apartamento en Castilla; 3 familiares esperan noticias desde hace horas. Rescate urgente.","supplies":[],"contacts":[{"type":"whatsapp","value":"320 123 4567"}],"locationQuery":"Castilla"}}',
     "",
-    "EJEMPLO 2 (la persona lo cuenta todo de una — igual se confirma la ubicación):",
+    "EJEMPLO 2 (ofrecimiento completo de una):",
     "Persona: Ofrezco refugio para 20 personas en el centro de Manizales, con camas y agua; mi celular es 310 555 8899.",
-    'Asistente: ¡Qué buena ayuda! ¿Lo marcamos en el centro de Manizales en el mapa?[[UBICACION]][[FALTA]][[/FALTA]]',
+    'Asistente: ¡Qué buena ayuda! ¿Lo marcamos en el centro de Manizales en el mapa? {"a":"ubicacion","f":["fotos"],"p":{"type":"offer_help","helpType":"Refugio","title":"Refugio para 20 personas en el centro de Manizales","description":"Refugio con camas y agua para 20 personas.","supplies":[{"name":"Agua"}],"contacts":[{"type":"phone","value":"310 555 8899"}],"locationQuery":"centro de Manizales"}}',
   ].join("\n");
 }
 
@@ -127,6 +129,134 @@ export function buildExtractionPrompt(transcript: string): string {
   ].join("\n");
 }
 
+// ── Estado por turno (JSON) ──────────────────────────────────────────────────
+// El asistente cierra CADA respuesta con {"a":…,"f":[…],"p":{…}}. La app lo
+// parsea para saber qué hacer (pedir la ubicación, mostrar el botón de
+// publicar…) y para acumular el borrador en vivo. Si el modelo rompe el JSON,
+// parseTurnState devuelve null y el turno se trata como "chat" (degradación
+// elegante: el texto sigue visible y se conserva el estado del turno previo).
+
+export type TurnAction = "chat" | "ubicacion" | "confirmar" | "listo";
+
+export interface TurnState {
+  action: TurnAction;
+  // null = el modelo no incluyó "f" → se conserva el estado anterior.
+  missing: MissingField[] | null;
+  // Borrador parcial de ESTE turno (ya saneado; puede estar incompleto).
+  draft: AiPointDraft | null;
+}
+
+export function parseTurnState(text: string): TurnState | null {
+  const jsonText = extractLastStateObject(text);
+  if (!jsonText) return null;
+  try {
+    const raw = JSON.parse(jsonText) as Record<string, unknown>;
+    if (!("a" in raw) && !("f" in raw) && !("p" in raw)) return null;
+    const a = typeof raw.a === "string" ? raw.a : "";
+    const action: TurnAction =
+      a === "ubicacion" || a === "confirmar" || a === "listo" ? a : "chat";
+    const missing = Array.isArray(raw.f)
+      ? raw.f.filter(
+          (s): s is MissingField =>
+            typeof s === "string" && (MISSING_FIELDS as readonly string[]).includes(s),
+        )
+      : null;
+    const draft = raw.p ? sanitizePartialDraft(raw.p) : null;
+    return { action, missing, draft };
+  } catch {
+    return null;
+  }
+}
+
+// Fusiona el borrador de un turno con el acumulado: cada campo del turno nuevo
+// solo pisa si trae valor (el prompt pide repetir "p" completo, pero por si el
+// modelo lo corta, lo seguro es no perder lo ya recopilado).
+export function mergeDrafts(prev: AiPointDraft, next: AiPointDraft): AiPointDraft {
+  return {
+    type: next.type,
+    helpType: next.helpType,
+    title: next.title || prev.title,
+    description: next.description || prev.description,
+    locationQuery: next.locationQuery || prev.locationQuery,
+    supplies: next.supplies.length > 0 ? next.supplies : prev.supplies,
+    contacts: next.contacts.length > 0 ? next.contacts : prev.contacts,
+  };
+}
+
+// ¿El borrador acumulado ya sirve para publicar sin la 2ª llamada de
+// extracción? (La ubicación la aporta la UI, no el modelo.)
+export function isDraftComplete(d: AiPointDraft | null): boolean {
+  return (
+    !!d &&
+    d.title.trim().length >= 3 &&
+    d.description.trim().length >= 10 &&
+    d.contacts.length > 0
+  );
+}
+
+// Último objeto {…} balanceado a nivel de texto (con consciencia de strings)
+// que parezca estado de turno (tenga alguna clave "a"/"f"/"p"). Devolver el
+// último evita confundir el JSON de un ejemplo con el estado real.
+function extractLastStateObject(text: string): string | null {
+  const candidates: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inStr = false;
+  let esc = false;
+  for (let k = 0; k < text.length; k++) {
+    const c = text[k];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      continue;
+    }
+    if (c === "{") {
+      if (depth === 0) start = k;
+      depth++;
+    } else if (c === "}") {
+      if (depth > 0) depth--;
+      if (depth === 0 && start !== -1) {
+        candidates.push(text.slice(start, k + 1));
+        start = -1;
+      }
+    }
+  }
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const s = candidates[i];
+    if (s.includes('"a"') || s.includes('"f"') || s.includes('"p"')) return s;
+  }
+  return null;
+}
+
+// Igual que sanitizePointDraft pero para el borrador PARCIAL de un turno: no
+// exige título/descripción mínimos (se van llenando en vivo) y reusa los
+// saneadores de catálogos (suministros, contactos, tipos).
+function sanitizePartialDraft(raw: unknown): AiPointDraft | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  // Ante la duda, need_help: puede publicarse sin sesión (anónimo) y en
+  // emergencia es el default seguro.
+  const type: PointType = r.type === "offer_help" ? "offer_help" : "need_help";
+  const helpRaw = typeof r.helpType === "string" ? r.helpType : "";
+  const helpType = (HELP_TYPES as readonly string[]).includes(helpRaw)
+    ? (helpRaw as HelpTypeOption)
+    : "Otro";
+  return {
+    type,
+    title: clampText(r.title, 150),
+    description: clampText(r.description, 2000),
+    helpType,
+    locationQuery: clampText(r.locationQuery, 200),
+    supplies: sanitizeSupplies(r.supplies),
+    contacts: sanitizeContacts(r.contacts),
+  };
+}
+
 // Quita de un texto TODO el marcado de control (bloque [[PUNTO]], [[UBICACION]],
 // [[CONFIRMAR]], [[LISTO]], [[FALTA]]…[[/FALTA]]) para no mostrarlo en burbujas.
 export function stripMarkers(text: string): string {
@@ -141,11 +271,29 @@ export function stripMarkers(text: string): string {
     const fj = out.indexOf(MISSING_CLOSE, fi);
     out = out.slice(0, fi) + (fj === -1 ? "" : out.slice(fj + MISSING_CLOSE.length));
   }
+  // Bloque JSON de estado por turno: la app lo consume, la persona no lo ve.
+  out = stripStateJson(out);
   return out
     .replaceAll(LOCATION_MARKER, "")
     .replaceAll(CONFIRM_MARKER, "")
     .replaceAll(READY_MARKER, "")
+    // Vallas de markdown que a veces envuelven el JSON.
+    .replaceAll("```json", "")
+    .replaceAll("```JSON", "")
+    .replaceAll("```", "")
     .trim();
+}
+
+// Elimina del texto todos los objetos JSON que parezcan estado de turno
+// (máximo 4 pasadas: el modelo solo debería emitir uno, pero por si repite).
+function stripStateJson(text: string): string {
+  let out = text;
+  for (let n = 0; n < 4; n++) {
+    const candidate = extractLastStateObject(out);
+    if (!candidate) break;
+    out = out.replace(candidate, "");
+  }
+  return out;
 }
 
 // ¿La respuesta no tiene texto útil? Vacía o solo símbolos residuales de

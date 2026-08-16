@@ -10,6 +10,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Cpu, ImagePlus, MapPin, Send, ShieldCheck, Sparkles, Square, X } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
+import { useLoginModal } from "../../context/LoginModalContext";
+import { publishPoint } from "../../api/points";
 import { useLocalChat } from "../../hooks/useLocalChat";
 import { findModelOption, type LocalModelOption } from "../../llm/models";
 import {
@@ -39,8 +42,8 @@ interface AiChatExtras {
 }
 
 interface AiChatProps {
-  // Aplica el borrador recopilado + extras (ubicación y fotos). Si hay
-  // ubicación, el wizard salta directo al paso de revisión.
+  // Aplica el borrador recopilado + extras (ubicación y fotos) en el formulario
+  // manual. Hoy se usa como salida opcional ("revisar en el formulario").
   onApply: (draft: AiPointDraft, extras: AiChatExtras) => void;
   // Vuelve al formulario manual (sin aplicar datos).
   onExit: () => void;
@@ -50,6 +53,10 @@ interface AiChatProps {
   // hoja y el próximo tap en el mapa llama a onPicked con la ubicación
   // geocodificada (el control vuelve al chat).
   requestMapPick: (onPicked: (r: AddressResult) => void) => void;
+  // Ubicación elegida en el chat (buscador o tap): el wizard la aplica a sus
+  // locations para que el marcador aparezca en el mapa EN VIVO mientras se
+  // chatea (no solo al aplicar el borrador).
+  onLocationPicked?: (r: AddressResult) => void;
 }
 
 // Cabecera compartida: volver, título y cerrar.
@@ -441,16 +448,22 @@ function DraftCard({
   draft,
   locationLabel,
   photosCount,
+  publishing,
   onChange,
-  onApply,
+  onPublish,
+  onReviewForm,
   onDismiss,
 }: {
   draft: AiPointDraft;
-  // Ubicación elegida en el chat (solo informativa aquí; se aplica al confirmar).
+  // Ubicación elegida en el chat (se publica tal cual; se pide si falta).
   locationLabel: string | null;
   photosCount: number;
+  publishing: boolean;
   onChange: (d: AiPointDraft) => void;
-  onApply: () => void;
+  // Publica directamente desde el chat (sube fotos + POST /points).
+  onPublish: () => void;
+  // Abre estos datos en el formulario manual para revisarlos (salida opcional).
+  onReviewForm: () => void;
   onDismiss: () => void;
 }) {
   const valid = draft.title.trim().length >= 3 && draft.description.trim().length >= 10;
@@ -585,14 +598,24 @@ function DraftCard({
         + añadir contacto
       </button>
 
-      <button
-        type="button"
-        onClick={onApply}
-        disabled={!valid}
-        className="mt-3 w-full rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        Publicar en el mapa
-      </button>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onPublish}
+          disabled={!valid || publishing}
+          className="flex-1 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {publishing ? "Publicando…" : "Publicar ahora"}
+        </button>
+        <button
+          type="button"
+          onClick={onReviewForm}
+          title="Abrir estos datos en el formulario para revisarlos"
+          className="shrink-0 rounded-md border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          Formulario
+        </button>
+      </div>
       {!valid && (
         <p className="mt-1 text-center text-[11px] text-gray-400">
           Completa el título (3+) y la descripción (10+)
@@ -600,15 +623,101 @@ function DraftCard({
       )}
       <p className="mt-1 text-center text-[11px] text-gray-400">
         {locationLabel
-          ? "Todo listo: confirmarás la ubicación y el punto en el último paso."
-          : "Primero marcamos el punto en el mapa, luego confirmas y se publica."}
+          ? "Se publica con esta ubicación y las fotos adjuntadas."
+          : "Falta la ubicación: búscala arriba o marca el punto en el mapa."}
       </p>
     </div>
   );
 }
 
-export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps) {
+// Éxito tras publicar desde el chat: código verificable + link para compartir.
+function PublishedScreen({
+  created,
+  onSeeMap,
+  onAnother,
+}: {
+  created: { code: string; type: PointType };
+  onSeeMap: () => void;
+  onAnother: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const shareUrl = `${window.location.origin}/p/${created.code}`;
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard no disponible */
+    }
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+        <p>
+          {created.type === "offer_help"
+            ? "Tu punto fue enviado a revisión. Un moderador lo verificará antes de publicarlo en el mapa."
+            : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
+        </p>
+      </div>
+
+      <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800">
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          Código de verificación
+        </p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Compártelo para que otras personas puedan encontrar y verificar este punto.
+        </p>
+        <code className="mt-3 block rounded bg-white px-3 py-2.5 text-center font-mono text-xl font-bold tracking-[0.3em] text-gray-900 ring-1 ring-gray-200 select-all dark:bg-gray-900 dark:text-gray-100 dark:ring-gray-700">
+          {created.code}
+        </code>
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            readOnly
+            value={shareUrl}
+            className="min-w-0 flex-1 truncate rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <button
+            type="button"
+            onClick={copyLink}
+            className="shrink-0 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            {copied ? "✓ Copiado" : "Copiar"}
+          </button>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onSeeMap}
+        className="mt-4 w-full rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white"
+      >
+        Ver en el mapa
+      </button>
+      <button
+        type="button"
+        onClick={onAnother}
+        className="mt-2 w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+      >
+        Publicar otro punto
+      </button>
+    </div>
+  );
+}
+
+export function AiChat({
+  onApply,
+  onExit,
+  onClose,
+  requestMapPick,
+  onLocationPicked,
+}: AiChatProps) {
   const chat = useLocalChat();
+  const { user } = useAuth();
+  const loginModal = useLoginModal();
   // "chat" = conversación; "settings" = cambiar de modelo (con motor ya listo).
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [input, setInput] = useState("");
@@ -621,6 +730,12 @@ export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps
   // o cuando el JSON trae un locationQuery sin ubicación elegida aún).
   const [locOpen, setLocOpen] = useState(false);
   const [locQuery, setLocQuery] = useState("");
+  // Publicación directa desde el chat (sube fotos + POST /points) y éxito.
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<{ code: string; type: PointType } | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  // Guarda de auto-publicación: el turno "listo" publica una sola vez.
+  const autoPublishedRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -634,15 +749,15 @@ export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps
     if (chat.askLocation && !location) setLocOpen(true);
   }, [chat.askLocation, location]);
 
-  // El JSON trae un lugar mencionado y aún no hay ubicación → abre la tarjeta
-  // con la búsqueda automática ya hecha (ej. "Parque de Laureles, Medellín").
+  // El JSON de algún turno trae un lugar mencionado y aún no hay ubicación →
+  // abre la tarjeta con la búsqueda ya lista (ej. "Castilla, Medellín").
   useEffect(() => {
-    const q = chat.extracted?.locationQuery;
+    const q = chat.draft?.locationQuery;
     if (q && !location) {
       setLocQuery(q);
       setLocOpen(true);
     }
-  }, [chat.extracted, location]);
+  }, [chat.draft, location]);
 
   // Salvaguarda determinista: si el modelo pide aprobación sin que haya una
   // ubicación marcada (se saltó el paso del mapa), forzamos la tarjeta de
@@ -667,11 +782,13 @@ export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps
     void chat.send(t);
   }
 
-  // Ubicación elegida (buscador o mapa): se guarda, se cierra la tarjeta y se
-  // avisa al modelo para que continúe con lo que falte (él no ve la UI).
+  // Ubicación elegida (buscador o mapa): se guarda, se cierra la tarjeta, se
+  // avisa al modelo para que continúe con lo que falte (él no ve la UI) y se
+  // notifica al wizard para que el marcador aparezca en el mapa EN VIVO.
   function applyLocation(r: AddressResult) {
     setLocation(r);
     setLocOpen(false);
+    onLocationPicked?.(r);
     void chat.send(`Ya definí la ubicación: ${r.label}. Sigue con lo que falte.`);
   }
 
@@ -690,6 +807,101 @@ export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps
   function retryLast() {
     const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
     if (lastUser) void chat.send(lastUser.content);
+  }
+
+  // Valida y publica el punto directamente desde el chat: fotos → presign+PUT,
+  // punto → POST /points (mismo helper que usa el formulario manual).
+  async function handlePublish() {
+    const d = draft ?? chat.extracted;
+    if (!d) return;
+    if (d.title.trim().length < 3 || d.description.trim().length < 10) {
+      setPublishError("Completa el título (3+) y la descripción (10+) en la tarjeta.");
+      return;
+    }
+    if (!location) {
+      setPublishError("Falta la ubicación: búscala arriba o marca el punto en el mapa.");
+      setLocOpen(true);
+      return;
+    }
+    if (d.contacts.length === 0) {
+      setPublishError("Añade al menos un contacto en la tarjeta.");
+      return;
+    }
+    // Misma regla que el formulario: ofrecer ayuda requiere sesión.
+    if (d.type === "offer_help" && !user) {
+      loginModal.open("Inicia sesión para publicar tu punto de ayuda.");
+      return;
+    }
+    setPublishError(null);
+    setPublishing(true);
+    try {
+      const res = await publishPoint({
+        type: d.type,
+        title: d.title,
+        description: d.description,
+        helpTypeName: d.helpType,
+        supplies: d.supplies,
+        contacts: d.contacts,
+        locations: [
+          {
+            type: "location",
+            lat: location.lat,
+            lng: location.lng,
+            addressText: location.label,
+            city: location.city ?? "",
+            neighborhood: location.neighborhood ?? "",
+          },
+        ],
+        photos,
+      });
+      setPublished(res);
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : "No pudimos publicar el punto.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  // Turno "listo" (la persona ya aprobó el resumen): publica automáticamente si
+  // todo está completo y válido; si falta algo, la tarjeta con su botón indica
+  // qué y no se publica nada sin la ubicación.
+  useEffect(() => {
+    if (published || publishing || autoPublishedRef.current) return;
+    if (chat.turnAction !== "listo" || !chat.extracted) return;
+    const d = chat.extracted;
+    const complete =
+      d.title.trim().length >= 3 && d.description.trim().length >= 10 && d.contacts.length > 0;
+    if (!complete || !location) return;
+    if (d.type === "offer_help" && !user) return; // el botón pedirá sesión
+    autoPublishedRef.current = true;
+    void handlePublish();
+  });
+
+  // Éxito: pantalla con el código verificable y el link para compartir.
+  if (published) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ChatHeader
+          showBack={false}
+          subtitle="IA local"
+          onBack={() => undefined}
+          onClose={onClose}
+        />
+        <PublishedScreen
+          created={published}
+          onSeeMap={onClose}
+          onAnother={() => {
+            setPublished(null);
+            autoPublishedRef.current = false;
+            setDraft(null);
+            setLocation(null);
+            setPhotos([]);
+            setPublishError(null);
+            chat.resetConversation();
+          }}
+        />
+      </div>
+    );
   }
 
   // Sin WebGPU: explicación y vuelta al formulario manual (que sigue intacto).
@@ -858,20 +1070,28 @@ export function AiChat({ onApply, onExit, onClose, requestMapPick }: AiChatProps
         </div>
       )}
 
-      {/* Tarjeta editable con lo recopilado (cuando el modelo la emitió). */}
+      {/* Tarjeta editable con lo recopilado: botón "Publicar ahora" (publica
+          directo desde el chat) o salida al formulario manual. */}
       {draft && (
-        <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-gray-100 px-4 py-3">
+        <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-gray-100 px-4 py-3 dark:border-gray-800">
           <DraftCard
             draft={draft}
             locationLabel={location?.label ?? null}
             photosCount={photos.length}
+            publishing={publishing}
             onChange={setDraft}
-            onApply={() => onApply(draft, { location, photos })}
+            onPublish={() => void handlePublish()}
+            onReviewForm={() => onApply(draft, { location, photos })}
             onDismiss={() => {
               chat.dismissExtracted();
               setDraft(null);
             }}
           />
+          {publishError && (
+            <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">
+              {publishError}
+            </p>
+          )}
         </div>
       )}
 
