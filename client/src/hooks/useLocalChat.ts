@@ -23,6 +23,7 @@ import {
   buildLugarSystemPrompt,
   buildVerifierSystemPrompt,
   extractContactsFromText,
+  helpTypeOutOfCatalog,
   isDraftComplete,
   mergeDrafts,
   inferHelpType,
@@ -48,6 +49,11 @@ export interface ChatMessage {
   // Notas de sistema / resultados de tools: van al CONTEXTO del LLM pero no se
   // pintan como burbujas ([sistema: …]).
   hidden?: boolean;
+  // Texto generado por la APP (ej. confirmación de ubicación con la etiqueta
+  // larga del geocoder): se muestra y va al contexto del LLM, pero NO cuenta
+  // como palabras de la persona (anti-fabricación) ni entra al transcript de
+  // la extracción de respaldo.
+  synthetic?: boolean;
   // Fotos adjuntadas por la persona (object-URLs): SOLO UI (miniaturas en la
   // burbuja). No entran al contexto del LLM ni a la extracción de respaldo.
   photoUrls?: string[];
@@ -74,6 +80,24 @@ export type LocalChatStatus =
 // Cuántos mensajes de historial (además del system prompt) se envían: evita
 // desbordar la ventana de contexto de los modelos pequeños (4096 tokens).
 const MAX_HISTORY = 16;
+// Presupuesto aproximado de caracteres del historial (~4 chars ≈ 1 token en
+// español): junto al system (~400 tokens) y la respuesta (~520 tokens) deja
+// margen holgado en la ventana. Entran primero los turnos más recientes; el
+// último siempre viaja aunque supere el presupuesto.
+const MAX_HISTORY_CHARS = 6000;
+// Notas ocultas de sistema acumuladas como máximo: no desplazan conversación
+// real del historial acotado.
+const MAX_HIDDEN_NOTES = 3;
+// Techo de tokens por llamada al agente (datos+lugar+pedir/resumen caben
+// holgados). Si la respuesta se corta (finish_reason "length") el reintento
+// sube el techo: un JSON truncado no parsea y es la causa más común de turno
+// "fallido" con deltas "datos" grandes.
+const AGENT_MAX_TOKENS = 520;
+const AGENT_RETRY_MAX_TOKENS = 1200;
+// Techo de la extracción de respaldo (JSON completo del punto: una
+// descripción larga puede superar con creces los 500 tokens anteriores).
+const EXTRACT_MAX_TOKENS = 800;
+const EXTRACT_RETRY_MAX_TOKENS = 1600;
 
 // Estado + acciones del chat-agente con IA local (WebLLM). El modelo SOLO
 // entrevista y emite tool calls (datos / buscar_lugar / pedir / resumen /
@@ -117,6 +141,10 @@ export function useLocalChat() {
   // Anti-bucle: «¿qué tipo de ayuda?» se pregunta UNA vez; si la respuesta no
   // es del catálogo, queda «Otro» (válido) y se avanza al resumen.
   const ayudaAskedRef = useRef(false);
+  // Algún delta del modelo trajo "helpType" EXPLÍCITO (aunque sea «Otro»): el
+  // modelo ya clasificó viendo el contexto y el guion no re-pregunta. Solo lo
+  // marcan el pase principal y el verificador (pasan sinHelpType real).
+  const helpTypeExplicitRef = useRef(false);
 
   const webgpuSupported = useMemo(() => isWebGPUSupported(), []);
 
@@ -161,13 +189,78 @@ export function useLocalChat() {
     [modelId],
   );
 
-  // Nota oculta de sistema: entra al contexto del LLM, no se pinta.
+  // Nota oculta de sistema: entra al contexto del LLM, no se pinta. Sin
+  // duplicar la última y con tope de acumulación (las notas no desplazan
+  // conversación real del historial acotado del modelo).
   function appendHiddenNote(note: string) {
-    commit((prev) => [...prev, { role: "user", content: note, hidden: true }]);
+    commit((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.hidden && last.content === note) return prev;
+      let base = prev;
+      if (prev.filter((m) => m.hidden).length >= MAX_HIDDEN_NOTES) {
+        const firstIdx = prev.findIndex((m) => m.hidden);
+        if (firstIdx !== -1) base = prev.filter((_, i) => i !== firstIdx);
+      }
+      return [...base, { role: "user", content: note, hidden: true }];
+    });
   }
 
   // Contexto de UI del envío en curso (la app decide el guion con él).
   const uiCtxRef = useRef<ChatUiContext>({ hasLocation: false });
+
+  // Aplica un delta "datos" al acumulado: merge (conservando type/helpType que
+  // el JSON omitió) + ANTI-FABRICACIÓN contra el texto real de la persona
+  // (título/descripción no rastreables, contactos fabricados o suministros no
+  // mencionados se descartan; se restaura el valor previo de título/descripción
+  // si existía). Lo usan el pase principal, el verificador y la extracción de
+  // respaldo: UN solo punto de verdad.
+  function applyDraftDelta(datos: AiPointDraft, sinType?: boolean, sinHelpType?: boolean) {
+    const prev = draftRef.current;
+    let merged = prev
+      ? mergeDrafts(prev, datos, { keepPrevType: sinType, keepPrevHelpType: sinHelpType })
+      : datos;
+    merged = sanitizeDraftAgainstText(merged, userTextRef.current);
+    if (!merged.title && prev?.title) merged.title = prev.title;
+    if (!merged.description && prev?.description) merged.description = prev.description;
+    // Un delta no puede VACIAR contactos ya recopilados (evita re-preguntar
+    // contacto tras respuestas que no lo mencionan).
+    if (merged.contacts.length === 0 && prev?.contacts.length) {
+      merged.contacts = prev.contacts;
+    }
+    // Tipo de ayuda determinista por keywords cuando el guion lo necesite
+    // y el modelo no lo haya fijado (respuestas fuera de catálogo).
+    if (merged.helpType === "Otro") {
+      const t = inferHelpType(userTextRef.current);
+      if (t) merged.helpType = t;
+    }
+    draftRef.current = merged;
+    setDraft(merged);
+    // Clasificación explícita del modelo: sinHelpType === false solo lo pasan
+    // el pase principal y el verificador (saben si el JSON trajo "helpType").
+    if (sinHelpType === false) helpTypeExplicitRef.current = true;
+    return merged;
+  }
+
+  // Transcripción para la extracción de respaldo: SOLO turnos reales (los
+  // mensajes sintéticos de la app —confirmaciones de ubicación con etiquetas
+  // largas del geocoder— se excluyen para no contaminar la extracción) y con
+  // tope de longitud para no desbordar la ventana de contexto. Conserva los
+  // turnos más recientes.
+  function buildTranscript(maxChars = 6000): string {
+    const all = messagesRef.current;
+    const lines: string[] = [];
+    let total = 0;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const m = all[i];
+      if (m.hidden || m.synthetic || m.content === "") continue;
+      const body = m.role === "user" ? m.content : stripMarkers(m.content);
+      const line = `${m.role === "user" ? "Persona" : "Asistente"}: ${body}`;
+      if (lines.length > 0 && total + line.length > maxChars) break;
+      lines.unshift(line);
+      total += line.length;
+    }
+    return lines.join("\n");
+  }
 
   // Un intercambio: mensaje (visible u oculto) → el modelo estructura en JSON
   // (nunca escribe prosa visible) → la app decide la pregunta/resumen según su
@@ -177,36 +270,60 @@ export function useLocalChat() {
     if (!trimmed || statusRef.current !== "ready" || generatingRef.current) return;
     generatingRef.current = true;
     setError(null);
-    const userMsg: ChatMessage = { role: "user", content: trimmed, hidden: hidden || undefined };
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: trimmed,
+      hidden: hidden || undefined,
+      synthetic: (!hidden && synthetic) || undefined,
+    };
     // Solo las palabras REALES de la persona alimentan la anti-fabricación.
     if (!hidden && !synthetic) userTextRef.current += ` ${trimmed}`;
     commit((prev) => [...prev, userMsg, { role: "assistant", content: "", streaming: true }]);
     applyStatus("generating");
     try {
-      // Historial para el LLM: system (contrato JSON) + últimos mensajes.
+      // Historial para el LLM: system (contrato JSON) + últimos mensajes,
+      // acotado por número Y por longitud acumulada (ventana de contexto
+      // corta en los modelos pequeños). El turno más reciente siempre viaja.
       const historyBase = messagesRef.current.slice(0, -1);
+      const recentHistory = (): ChatCompletionMessageParam[] => {
+        const picked: ChatMessage[] = [];
+        let budget = MAX_HISTORY_CHARS;
+        for (let i = historyBase.length - 1; i >= 0 && picked.length < MAX_HISTORY; i--) {
+          const m = historyBase[i];
+          if (m.content === "") continue;
+          if (picked.length > 0 && budget - m.content.length < 0) break;
+          picked.unshift(m);
+          budget -= m.content.length;
+        }
+        return picked.map((m) => ({ role: m.role, content: m.content }));
+      };
       const buildHistory = (): ChatCompletionMessageParam[] => [
         { role: "system", content: buildAgentSystemPrompt() },
-        ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
+        ...recentHistory(),
       ];
       // El JSON del modelo NO se muestra: se recoge entero y se parsea.
-      const generate = (msgs: ChatCompletionMessageParam[]) =>
-        streamChat({ messages: msgs, temperature: 0.1, maxTokens: 260, onDelta: () => undefined });
-      let obj = parseAgentObject((await generate(buildHistory())).text);
+      const generate = (msgs: ChatCompletionMessageParam[], maxTokens = AGENT_MAX_TOKENS) =>
+        streamChat({ messages: msgs, temperature: 0.1, maxTokens, onDelta: () => undefined });
+      let gen = await generate(buildHistory());
+      let obj = parseAgentObject(gen.text);
       if (!obj) {
-        // Un reintento correctivo; si también falla, el guion de la app sigue
-        // igual (pregunta por lo que falte): el chat nunca se traba.
-        obj = parseAgentObject(
-          (
-            await generate([
-              ...buildHistory(),
-              {
-                role: "user",
-                content: "Responde SOLO con el objeto JSON de una sola línea.",
-              },
-            ])
-          ).text,
+        // Reintento correctivo. Si el JSON se cortó por max_tokens
+        // (finish_reason "length") se sube el techo: un delta "datos" grande
+        // no cabe en un presupuesto corto. Si también falla, el guion de la
+        // app sigue igual (pregunta por lo que falte): el chat nunca se traba.
+        const maxTokens =
+          gen.finishReason === "length" ? AGENT_RETRY_MAX_TOKENS : AGENT_MAX_TOKENS;
+        gen = await generate(
+          [
+            ...buildHistory(),
+            {
+              role: "user",
+              content: "Responde SOLO con el objeto JSON de una sola línea.",
+            },
+          ],
+          maxTokens,
         );
+        obj = parseAgentObject(gen.text);
       }
       // Contactos deterministas del mensaje de la persona (regex: @handle,
       // email, teléfono/whatsapp): entran aunque el modelo falle o invente.
@@ -230,34 +347,7 @@ export function useLocalChat() {
           setDraft(draftRef.current);
         }
       }
-      // Aplica un delta "datos" al acumulado: merge (conservando type/helpType
-      // que el JSON omitió) + ANTI-FABRICACIÓN contra el texto real de la
-      // persona (título/descripción no rastreables, contactos fabricados o
-      // suministros no mencionados se descartan; se restaura el valor previo
-      // de título/descripción si existía).
-      const applyDatos = (datos: AiPointDraft, sinType?: boolean, sinHelpType?: boolean) => {
-        const prev = draftRef.current;
-        let merged = prev
-          ? mergeDrafts(prev, datos, { keepPrevType: sinType, keepPrevHelpType: sinHelpType })
-          : datos;
-        merged = sanitizeDraftAgainstText(merged, userTextRef.current);
-        if (!merged.title && prev?.title) merged.title = prev.title;
-        if (!merged.description && prev?.description) merged.description = prev.description;
-        // Un delta no puede VACIAR contactos ya recopilados (evita re-preguntar
-        // contacto tras respuestas que no lo mencionan).
-        if (merged.contacts.length === 0 && prev?.contacts.length) {
-          merged.contacts = prev.contacts;
-        }
-        // Tipo de ayuda determinista por keywords cuando el guion lo necesite
-        // y el modelo no lo haya fijado (respuestas fuera de catálogo).
-        if (merged.helpType === "Otro") {
-          const t = inferHelpType(userTextRef.current);
-          if (t) merged.helpType = t;
-        }
-        draftRef.current = merged;
-        setDraft(merged);
-      };
-      if (obj?.datos) applyDatos(obj.datos, obj.sinType, obj.sinHelpType);
+      if (obj?.datos) applyDraftDelta(obj.datos, obj.sinType, obj.sinHelpType);
       const hasLocation = uiCtxRef.current.hasLocation;
       let d = draftRef.current;
       // Pasada ENFOCADA de lugar: el guion necesita la ubicación y el objeto
@@ -277,7 +367,7 @@ export function useLocalChat() {
           (
             await generate([
               { role: "system", content: buildLugarSystemPrompt() },
-              ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
+              ...recentHistory(),
             ])
           ).text,
         );
@@ -287,18 +377,18 @@ export function useLocalChat() {
       // enfocado) todavía falta algún campo —o el pase falló del todo—, otra
       // llamada con framing de VERIFICACIÓN contra el borrador recupera lo
       // omitido antes de preguntar algo que la persona ya respondió. Su salida
-      // pasa la misma anti-fabricación (applyDatos). Solo corre cuando hace
+      // pasa la misma anti-fabricación (applyDraftDelta). Solo corre cuando hace
       // falta: si nada falta, no se paga la latencia extra.
       if (!obj || nextMissingField(draftRef.current, hasLocation) !== null) {
         const verified = parseAgentObject(
           (
             await generate([
               { role: "system", content: buildVerifierSystemPrompt(draftRef.current) },
-              ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
+              ...recentHistory(),
             ])
           ).text,
         );
-        if (verified?.datos) applyDatos(verified.datos, verified.sinType, verified.sinHelpType);
+        if (verified?.datos) applyDraftDelta(verified.datos, verified.sinType, verified.sinHelpType);
         if (verified?.lugar && !hasLocation && !obj?.lugar) {
           obj = { ...obj, lugar: verified.lugar };
         }
@@ -343,10 +433,20 @@ export function useLocalChat() {
         }
       } else {
         // Guion: qué pasó → ubicación → contacto → tipo de ayuda → resumen.
-        // «Tipo de ayuda» solo se pregunta una vez (anti-bucle con respuestas
-        // fuera de catálogo como «solo necesito que me ayuden»).
+        // «Tipo de ayuda» NO se pregunta cuando el contexto ya lo responde:
+        // ya se preguntó (anti-bucle), el modelo lo clasificó explícitamente
+        // (aunque sea «Otro») o el tema es claramente fuera de catálogo
+        // (mascotas, personas perdidas, rescate, transporte…) — preguntar
+        // «¿refugio/alimentos/agua/médico/otra?» ahí sería ruido.
         let field = nextMissingField(d, hasLocation);
-        if (field === "ayuda" && ayudaAskedRef.current) field = null;
+        if (
+          field === "ayuda" &&
+          (ayudaAskedRef.current ||
+            helpTypeExplicitRef.current ||
+            helpTypeOutOfCatalog(userTextRef.current))
+        ) {
+          field = null;
+        }
         if (field && !(obj?.resumen && field === "ayuda")) {
           setMissing([field]);
           setAskLocation(field === "ubicacion");
@@ -390,45 +490,38 @@ export function useLocalChat() {
 
   // Respaldo: 2ª llamada dedicada de extracción desde la transcripción (para
   // cuando el acumulado de "datos" no alcance). La invoca la UI si hace falta.
+  // La extracción pasa la MISMA anti-fabricación que el pase principal
+  // (applyDraftDelta: solo datos rastreables al texto real de la persona) y el
+  // transcript excluye los mensajes sintéticos de la app, con tope de longitud.
   const extractFromTranscript = useCallback(async () => {
-    const transcript = messagesRef.current
-      .filter((m) => !m.hidden && m.content !== "")
-      .map((m) => {
-        const body = m.role === "user" ? m.content : stripMarkers(m.content);
-        return `${m.role === "user" ? "Persona" : "Asistente"}: ${body}`;
-      })
-      .filter((line) => !line.endsWith(":"))
-      .join("\n");
+    const transcript = buildTranscript();
     setExtracting(true);
     try {
-      let out = parsePointDraft(
-        (
-          await streamChat({
-            messages: [{ role: "system", content: buildExtractionPrompt(transcript) }],
-            temperature: 0.1,
-            maxTokens: 500,
-            onDelta: () => undefined,
-          })
-        ).text,
+      const run = (msgs: ChatCompletionMessageParam[], maxTokens: number) =>
+        streamChat({ messages: msgs, temperature: 0.1, maxTokens, onDelta: () => undefined });
+      let gen = await run(
+        [{ role: "system", content: buildExtractionPrompt(transcript) }],
+        EXTRACT_MAX_TOKENS,
       );
+      let out = parsePointDraft(gen.text);
       if (!out) {
+        // JSON roto o cortado por max_tokens → reintento correctivo con más
+        // techo (una descripción larga no cabe en un presupuesto corto y el
+        // JSON truncado no parsea).
         out = parsePointDraft(
           (
-            await streamChat({
-              messages: [
+            await run(
+              [
                 { role: "system", content: buildExtractionPrompt(transcript) },
                 { role: "user", content: "Responde SOLO con el objeto JSON válido." },
               ],
-              temperature: 0.1,
-              maxTokens: 500,
-              onDelta: () => undefined,
-            })
+              gen.finishReason === "length" ? EXTRACT_RETRY_MAX_TOKENS : EXTRACT_MAX_TOKENS,
+            )
           ).text,
         );
       }
       if (out) {
-        draftRef.current = draftRef.current ? mergeDrafts(draftRef.current, out) : out;
-        setDraft(draftRef.current);
+        applyDraftDelta(out);
         setExtracted(draftRef.current);
       } else {
         setError("No pude estructurar los datos. Cuéntalo de nuevo o usa el formulario.");
@@ -436,6 +529,7 @@ export function useLocalChat() {
     } finally {
       setExtracting(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Envío visible de la persona. `ctx` lleva el estado de la UI (ubicación
@@ -478,6 +572,7 @@ export function useLocalChat() {
     uiCtxRef.current = { hasLocation: false };
     userTextRef.current = "";
     ayudaAskedRef.current = false;
+    helpTypeExplicitRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

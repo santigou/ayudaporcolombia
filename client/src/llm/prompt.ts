@@ -1,12 +1,10 @@
-// System prompt y parseo del resultado para el asistente de creación por chat.
+// System prompts y parseo del resultado para el asistente de creación por chat.
 //
-// AGENTE CON TOOLS: el modelo solo entrevista (texto corto) y clasifica; cada
-// turno cierra con UNA o DOS tool calls JSON (una por línea). La APP ejecuta
-// las tools: acumular datos, geocodificar el lugar (Nominatim), armar el
-// resumen y publicar. El modelo NUNCA publica ni dice "publicando" — eso
-// elimina de raíz las publicaciones prematuras y el texto inventado.
-// Fallback: si el modelo no emite tool calls, se interpretan los marcadores
-// legacy [[…]] y el JSON {"a",...} de versiones previas del contrato.
+// AGENTE DETERMINISTA: el modelo SOLO estructura en JSON lo que la persona
+// dice (datos/lugar/pedir/resumen); la APP escribe las preguntas del guion,
+// geocodifica (Nominatim), arma el resumen y publica. El modelo NUNCA publica
+// ni escribe prosa visible. (Los contratos legacy —marcadores [[…]] y JSON
+// {"a",...} de versiones previas— fueron retirados: aquí vive uno solo.)
 
 import {
   CONTACT_TYPES,
@@ -20,14 +18,9 @@ import {
   type SupplyDraft,
 } from "../types";
 
-export const POINT_BLOCK_OPEN = "[[PUNTO]]";
-export const POINT_BLOCK_CLOSE = "[[/PUNTO]]";
-// Marcadores de control que el modelo emite y la app oculta/muestra UI:
-export const LOCATION_MARKER = "[[UBICACION]]"; // está pidiendo la ubicación
-export const CONFIRM_MARKER = "[[CONFIRMAR]]"; // está pidiendo aprobación del resumen
-export const READY_MARKER = "[[LISTO]]"; // aprobado: la app extrae el punto (2ª llamada)
-export const MISSING_OPEN = "[[FALTA]]"; // lista de campos pendientes
-export const MISSING_CLOSE = "[[/FALTA]]";
+// Límite duro del título en TODO el contrato (saneadores y prompts de
+// extracción): un solo valor para que modelo, saneado y UI no discrepen.
+export const TITLE_MAX_CHARS = 150;
 
 // Campos que puede reportar [[FALTA]] (para los chips de progreso).
 export const MISSING_FIELDS = ["que_paso", "ayuda", "ubicacion", "contacto", "fotos"] as const;
@@ -61,38 +54,6 @@ export interface AiPointDraft {
 export const AI_GREETING =
   "¡Hola! Soy el asistente del mapa de emergencias por el sismo. Cuéntame qué pasa —puedes contarlo todo de una o yo te pregunto paso a paso—: «hay personas atrapadas», «ofrezco refugio», «busco a mi hermana», «se perdió mi gato»… Yo lo estructuro y lo publico en el mapa. ¿Qué quieres reportar u ofrecer?";
 
-export function buildSystemPrompt(): string {
-  return [
-    'Eres el asistente del mapa de emergencias por sismo "Ayuda por Colombia". Entrevistas a una persona para publicar su PUNTO en el mapa: algo que NECESITA (need_help) u OFRECE (offer_help): atrapados, heridos, personas perdidas o encontradas, refugios, acopio, agua, comida, medicina, transporte, mascotas…',
-    "",
-    "REGLAS:",
-    "1. Tutea a la persona. Máximo 2 líneas cortas por respuesta. UNA sola pregunta.",
-    "2. Texto plano: nunca markdown, nunca listas, nunca encabezados, nunca repitas texto del sistema.",
-    "3. NUNCA digas «publicando» ni prometas publicar: publicar lo hace la app, no tú.",
-    "4. Si la persona está en peligro: dile que llame al 123 (Colombia) y sigue.",
-    "5. Acepta todo lo que quiera publicar; no juzgues ni des consejos. Usa SOLO datos que la persona dijo.",
-    "6. Repasa la conversación antes de preguntar: NUNCA preguntes lo que ya te dijeron.",
-    "7. Cierra CADA respuesta con UNA o DOS llamadas a herramienta, cada una en su propia línea, al final. Sin ellas la app no entiende tu turno.",
-    "8. No repitas textualmente una respuesta anterior: avanza el guion.",
-    "",
-    "HERRAMIENTAS:",
-    '{"tool":"datos","p":{…}} — guarda lo NUEVO que dijo la persona. Campos de p: "type" ("need_help"/"offer_help"), "helpType" ("Refugio"/"Alimentos"/"Agua"/"Médico"/"Otro"), "title" (anuncio corto), "description" (detalles), "supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}], "contacts":[{"type":"whatsapp","value":"…"}] (tipos: phone/whatsapp/instagram/email/other). Envía SOLO los campos nuevos; no repitas todo.',
-    '{"tool":"buscar_lugar","q":"lugar"} — ubica el punto en el mapa. Úsala en cuanto sepas el lugar, aunque sea vago (ej. "Castilla, Medellín").',
-    '{"tool":"pedir","falta":"campo"} — pide un dato que falte: que_paso, ayuda, ubicacion, contacto o fotos.',
-    '{"tool":"resumen"} — cuando ya no falte nada. La app arma el resumen y el botón de publicar.',
-    '{"tool":"listo"} — SOLO cuando la persona apruebe el resumen («sí», «dale», «publícalo»).',
-    "",
-    "GUION: qué pasó → detalle útil → tipo de ayuda → suministros → lugar → fotos (opcional, no insistas) → contacto → resumen → listo.",
-    "",
-    "EJEMPLO:",
-    "Persona: Perdí a mi perro Toby, un beagle, cerca al CAD de Castilla en Medellín.",
-    "Asistente: ¡Qué pena con Toby! Vamos a publicarlo para que más gente te ayude a buscarlo. ¿Tienes un contacto (teléfono o WhatsApp)?",
-    '{"tool":"datos","p":{"type":"need_help","title":"Se perdió Toby, beagle, en Castilla","description":"Beagle llamado Toby perdido cerca al CAD de Castilla, Medellín, tras el sismo."}}',
-    '{"tool":"buscar_lugar","q":"CAD de Castilla, Medellín"}',
-  ].join("\n");
-}
-
-
 // SEGUNDA ETAPA — extracción del punto. Cuando el usuario aprueba el resumen
 // (el asistente responde [[LISTO]]), la app hace una llamada DEDICADA con este
 // prompt: solo extraer el JSON de la conversación. Separar "conversar" de
@@ -102,51 +63,13 @@ export function buildExtractionPrompt(transcript: string): string {
   return [
     "Eres un extractor de datos. Lee la conversación y devuelve EXCLUSIVAMENTE un objeto JSON válido, sin markdown ni explicaciones, con esta forma:",
     '{"type":"need_help","helpType":"Otro","title":"…","description":"…","supplies":[{"name":"Agua","targetQuantity":10,"unit":"Unidades"}],"contacts":[{"type":"whatsapp","value":"…"}],"locationQuery":"…"}',
-    'Reglas: "type" es "offer_help" SOLO si la persona ofrece ayuda; si no, "need_help". "helpType": exactamente uno de "Refugio","Alimentos","Agua","Médico","Otro". "title": máximo 100 caracteres, anuncio autónomo. "description": todos los detalles útiles de la conversación. "supplies" y "contacts": [] si no hay. "locationQuery": el lugar mencionado o "". Usa SOLO datos de la conversación; no inventes nada.',
+    `Reglas: "type" es "offer_help" SOLO si la persona ofrece ayuda; si no, "need_help". "helpType": exactamente uno de "Refugio","Alimentos","Agua","Médico","Otro". "title": máximo ${TITLE_MAX_CHARS} caracteres, anuncio autónomo. "description": todos los detalles útiles de la conversación. "supplies" y "contacts": [] si no hay. "locationQuery": el lugar mencionado o "". Usa SOLO datos de la conversación; no inventes nada.`,
     "",
     "CONVERSACIÓN:",
     transcript,
     "",
     "Responde solo con el JSON:",
   ].join("\n");
-}
-
-// ── Agente: tool calls por turno ─────────────────────────────────────────────
-// Contrato: cada turno del modelo = texto visible corto + UNA o DOS tool calls
-// JSON (una por línea, al final). La app las ejecuta en orden. Si el modelo no
-// emite ninguna, se interpretan los formatos legacy (marcadores [[…]] o JSON
-// {"a",...}) para no romper conversaciones iniciadas con contratos previos.
-
-export type AgentCall =
-  | { tool: "datos"; p: AiPointDraft }
-  | { tool: "buscar_lugar"; q: string }
-  | { tool: "pedir"; falta: MissingField }
-  | { tool: "resumen" }
-  | { tool: "listo" };
-
-// Interpreta un turno completo: tool calls del agente (primario) o formatos
-// legacy mapeados a calls equivalentes. [] = el turno no pidió nada.
-export function interpretTurn(text: string): AgentCall[] {
-  const calls = extractToolCalls(text);
-  if (calls.length > 0) return calls;
-  const ts = parseTurnState(text);
-  if (ts) {
-    const out: AgentCall[] = [];
-    // Solo guarda datos si el "p" trae algo (un delta vacío no aporta y evita
-    // calls fantasma cuando el modelo usa un nombre de tool inválido).
-    if (ts.draft && draftHasContent(ts.draft)) out.push({ tool: "datos", p: ts.draft });
-    if (ts.action === "ubicacion") out.push({ tool: "pedir", falta: "ubicacion" });
-    if (ts.action === "confirmar") out.push({ tool: "resumen" });
-    if (ts.action === "listo") out.push({ tool: "listo" });
-    if (out.length > 0) return out;
-    return [];
-  }
-  if (asksLocation(text)) return [{ tool: "pedir", falta: "ubicacion" }];
-  if (asksConfirmation(text)) return [{ tool: "resumen" }];
-  if (asksDone(text)) return [{ tool: "listo" }];
-  const miss = parseMissing(text);
-  if (miss && miss.length > 0) return [{ tool: "pedir", falta: miss[0] }];
-  return [];
 }
 
 // ¿El delta/borrador trae algún dato aprovechable?
@@ -331,86 +254,6 @@ export function placeNotFoundQuestion(q: string): string {
   return `No encontré «${q}» en el mapa. ¿En qué barrio, comuna o ciudad está?`;
 }
 
-// Todos los objetos JSON balanceados del texto (en orden) que sean tool calls
-// válidas del contrato. Tolerante a basura alrededor; ignora los que no parsean.
-function extractToolCalls(text: string): AgentCall[] {
-  const calls: AgentCall[] = [];
-  for (const s of balancedObjects(text)) {
-    let raw: Record<string, unknown>;
-    try {
-      raw = JSON.parse(s) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (typeof raw.tool !== "string") continue;
-    switch (raw.tool) {
-      case "datos": {
-        const d = sanitizePartialDraft(raw.p);
-        if (d) calls.push({ tool: "datos", p: d });
-        break;
-      }
-      case "buscar_lugar": {
-        const q = typeof raw.q === "string" ? raw.q.replace(/\s+/g, " ").trim().slice(0, 200) : "";
-        if (q) calls.push({ tool: "buscar_lugar", q });
-        break;
-      }
-      case "pedir": {
-        const f = raw.falta;
-        if (typeof f === "string" && (MISSING_FIELDS as readonly string[]).includes(f)) {
-          calls.push({ tool: "pedir", falta: f as MissingField });
-        }
-        break;
-      }
-      case "resumen":
-        calls.push({ tool: "resumen" });
-        break;
-      case "listo":
-        calls.push({ tool: "listo" });
-        break;
-    }
-  }
-  return calls;
-}
-
-// ── Estado por turno (legacy) ───────────────────────────────────────────────
-// El asistente cierra CADA respuesta con {"a":…,"f":[…],"p":{…}}. La app lo
-// parsea para saber qué hacer (pedir la ubicación, mostrar el botón de
-// publicar…) y para acumular el borrador en vivo. Si el modelo rompe el JSON,
-// parseTurnState devuelve null y el turno se trata como "chat" (degradación
-// elegante: el texto sigue visible y se conserva el estado del turno previo).
-
-export type TurnAction = "chat" | "ubicacion" | "confirmar" | "listo";
-
-export interface TurnState {
-  action: TurnAction;
-  // null = el modelo no incluyó "f" → se conserva el estado anterior.
-  missing: MissingField[] | null;
-  // Borrador parcial de ESTE turno (ya saneado; puede estar incompleto).
-  draft: AiPointDraft | null;
-}
-
-export function parseTurnState(text: string): TurnState | null {
-  const jsonText = extractLastStateObject(text);
-  if (!jsonText) return null;
-  try {
-    const raw = JSON.parse(jsonText) as Record<string, unknown>;
-    if (!("a" in raw) && !("f" in raw) && !("p" in raw)) return null;
-    const a = typeof raw.a === "string" ? raw.a : "";
-    const action: TurnAction =
-      a === "ubicacion" || a === "confirmar" || a === "listo" ? a : "chat";
-    const missing = Array.isArray(raw.f)
-      ? raw.f.filter(
-          (s): s is MissingField =>
-            typeof s === "string" && (MISSING_FIELDS as readonly string[]).includes(s),
-        )
-      : null;
-    const draft = raw.p ? sanitizePartialDraft(raw.p) : null;
-    return { action, missing, draft };
-  } catch {
-    return null;
-  }
-}
-
 // Fusiona el borrador de un turno con el acumulado: cada campo del turno nuevo
 // solo pisa si el JSON lo trajo explícitamente (los flags sinType/sinHelpType
 // evitan flips por los defaults del saneado cuando el modelo los omite).
@@ -531,6 +374,25 @@ export function inferHelpType(text: string): HelpTypeOption | null {
   return null;
 }
 
+// Temas claramente FUERA del catálogo de tipos de ayuda (mascotas, personas
+// perdidas, rescate, transporte, documentos…): preguntar «¿refugio, alimentos,
+// agua, médico u otra?» sería ruido — el contexto ya responde y el tipo
+// correcto es «Otro». Solo se consulta cuando inferHelpType no encontró nada
+// (el llamador garantiza el orden), así que un texto con señal de catálogo
+// («mi gato está herido» → Médico) nunca se salta por esta vía.
+const OUT_OF_CATALOG_TOPICS = [
+  "perro", "gato", "mascota", "animal", "veterinari",
+  "herman", "famili", "desaparecid", "extravi",
+  "atrapad", "derrumb", "escombro",
+  "transporte", "traslad", "ropa", "documento",
+];
+
+export function helpTypeOutOfCatalog(text: string): boolean {
+  const hay = normForMatch(text);
+  if (!hay) return false;
+  return OUT_OF_CATALOG_TOPICS.some((k) => hay.includes(k));
+}
+
 // ── Condensación determinista de texto repetitivo ───────────────────────────
 // El modelo a veces genera frases redundantes con palabras rastreables
 // («Beagle llamado Toby, un beagle… es un perro que es un beagle»): pasan la
@@ -628,12 +490,16 @@ export function extractContactsFromText(text: string): ContactInfo[] {
   if (igUrl) push("instagram", `@${igUrl[1].toLowerCase()}`);
   // Teléfono / WhatsApp: 7-15 dígitos; «whatsapp» cerca → tipo whatsapp.
   const lower = text.toLowerCase();
-  for (const m of text.match(/\+?\d[\d\s().-]{5,}\d/g) ?? []) {
-    const digits = m.replace(/\D/g, "");
+  for (const m of text.matchAll(/\+?\d[\d\s().-]{5,}\d/g)) {
+    const raw = m[0];
+    const digits = raw.replace(/\D/g, "");
     if (digits.length < 7 || digits.length > 15) continue;
-    const idx = lower.indexOf(m.toLowerCase());
+    // Contexto ANTES de ESTA aparición: matchAll da el índice real del match
+    // (indexOf devolvía siempre la primera aparición y clasificaba mal el
+    // número cuando salía dos veces en el texto).
+    const idx = m.index ?? 0;
     const before = idx > 0 ? lower.slice(Math.max(0, idx - 20), idx) : "";
-    push(/whats|wsp|\bws\b/.test(before) ? "whatsapp" : "phone", m.trim());
+    push(/whats|wsp|\bws\b/.test(before) ? "whatsapp" : "phone", raw.trim());
   }
   return out;
 }
@@ -661,18 +527,6 @@ export function isDraftComplete(d: AiPointDraft | null): boolean {
     d.description.trim().length >= 10 &&
     d.contacts.length > 0
   );
-}
-
-// Último objeto {…} balanceado (consciencia de strings) que parezca estado de
-// turno legacy (claves "a"/"f"/"p"). Devolver el último evita confundir el JSON
-// de un ejemplo con el estado real.
-function extractLastStateObject(text: string): string | null {
-  const candidates = balancedObjects(text);
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const s = candidates[i];
-    if (s.includes('"a"') || s.includes('"f"') || s.includes('"p"')) return s;
-  }
-  return null;
 }
 
 // Todos los objetos {…} balanceados del texto, en orden de aparición. Escaneo
@@ -724,7 +578,7 @@ function sanitizePartialDraft(raw: unknown): AiPointDraft | null {
     : "Otro";
   return {
     type,
-    title: clampText(r.title, 150),
+    title: clampText(r.title, TITLE_MAX_CHARS),
     description: clampText(r.description, 2000),
     helpType,
     locationQuery: clampText(r.locationQuery, 200),
@@ -733,27 +587,11 @@ function sanitizePartialDraft(raw: unknown): AiPointDraft | null {
   };
 }
 
-// Quita de un texto TODO el marcado de control (bloque [[PUNTO]], [[UBICACION]],
-// [[CONFIRMAR]], [[LISTO]], [[FALTA]]…[[/FALTA]]) para no mostrarlo en burbujas.
+// Limpia un texto antes de reutilizarlo (transcript de la extracción de
+// respaldo): quita JSON de control residual del agente y las vallas de
+// markdown que a veces envuelven el JSON del modelo.
 export function stripMarkers(text: string): string {
-  let out = text;
-  const pi = out.indexOf(POINT_BLOCK_OPEN);
-  if (pi !== -1) {
-    const pj = out.indexOf(POINT_BLOCK_CLOSE, pi);
-    out = out.slice(0, pi) + (pj === -1 ? "" : out.slice(pj + POINT_BLOCK_CLOSE.length));
-  }
-  const fi = out.indexOf(MISSING_OPEN);
-  if (fi !== -1) {
-    const fj = out.indexOf(MISSING_CLOSE, fi);
-    out = out.slice(0, fi) + (fj === -1 ? "" : out.slice(fj + MISSING_CLOSE.length));
-  }
-  // Bloque JSON de estado por turno: la app lo consume, la persona no lo ve.
-  out = stripStateJson(out);
-  return out
-    .replaceAll(LOCATION_MARKER, "")
-    .replaceAll(CONFIRM_MARKER, "")
-    .replaceAll(READY_MARKER, "")
-    // Vallas de markdown que a veces envuelven el JSON.
+  return stripStateJson(text)
     .replaceAll("```json", "")
     .replaceAll("```JSON", "")
     .replaceAll("```", "")
@@ -776,6 +614,10 @@ function stripStateJson(text: string): string {
 
 function looksLikeControl(s: string): boolean {
   return (
+    s.includes('"datos"') ||
+    s.includes('"lugar"') ||
+    s.includes('"pedir"') ||
+    s.includes('"resumen"') ||
     s.includes('"tool"') ||
     s.includes('"a"') ||
     s.includes('"f"') ||
@@ -783,42 +625,7 @@ function looksLikeControl(s: string): boolean {
   );
 }
 
-// ¿La respuesta no tiene texto útil? Vacía o solo símbolos residuales de
-// modelos pequeños (comillas, llaves, asteriscos sueltos…). Umbral: menos de
-// 3 caracteres útiles (letras/números) tras limpiar marcado y puntuación.
-export function isLowQuality(text: string): boolean {
-  const visible = stripMarkers(text);
-  const useful = visible.replace(/[\s\p{P}\p{S}]/gu, "");
-  return useful.length < 3;
-}
-
-// ¿El modelo está pidiendo la ubicación / la aprobación / ya aprobó?
-export function asksLocation(text: string): boolean {
-  return text.includes(LOCATION_MARKER);
-}
-export function asksConfirmation(text: string): boolean {
-  return text.includes(CONFIRM_MARKER);
-}
-export function asksDone(text: string): boolean {
-  return text.includes(READY_MARKER);
-}
-
-// Lista de campos pendientes según [[FALTA]]…[[/FALTA]]. null si el modelo no
-// emitió el marcador en esta respuesta (se conserva el estado anterior).
-export function parseMissing(text: string): MissingField[] | null {
-  const i = text.indexOf(MISSING_OPEN);
-  if (i === -1) return null;
-  const j = text.indexOf(MISSING_CLOSE, i);
-  const raw = text.slice(i + MISSING_OPEN.length, j === -1 ? undefined : j);
-  const valid = new Set<string>(MISSING_FIELDS);
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s): s is MissingField => valid.has(s));
-}
-
-// Extrae el JSON del bloque; si el modelo no usó los marcadores, intenta con
-// el primer objeto balanceado {…} que parezca un punto.
+// Extrae el JSON del punto: primer objeto balanceado {…} que parezca un punto.
 export function parsePointDraft(text: string): AiPointDraft | null {
   const raw = extractJson(text);
   if (!raw) return null;
@@ -830,12 +637,7 @@ export function parsePointDraft(text: string): AiPointDraft | null {
 }
 
 function extractJson(text: string): string | null {
-  const i = text.indexOf(POINT_BLOCK_OPEN);
-  if (i !== -1) {
-    const j = text.indexOf(POINT_BLOCK_CLOSE, i);
-    return text.slice(i + POINT_BLOCK_OPEN.length, j === -1 ? undefined : j).trim();
-  }
-  // Fallback: primer objeto balanceado que contenga "title".
+  // Primer objeto balanceado que contenga "title".
   let depth = 0;
   let start = -1;
   for (let k = 0; k < text.length; k++) {
@@ -869,7 +671,7 @@ function sanitizePointDraft(raw: unknown): AiPointDraft | null {
     ? (helpRaw as HelpTypeOption)
     : "Otro";
 
-  const title = clampText(r.title, 150);
+  const title = clampText(r.title, TITLE_MAX_CHARS);
   if (title.length < 3) return null;
   // Si el modelo no dio descripción, usamos el título como base editable.
   const description = clampText(r.description, 2000) || title;
