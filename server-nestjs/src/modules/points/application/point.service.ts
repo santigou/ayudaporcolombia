@@ -306,7 +306,8 @@ export class PointService {
     contacts?: ContactInput[]; locations?: LocationInput[]; supplies?: SupplyInput[];
     lat?: number; lng?: number; addressText?: string; city?: string; neighborhood?: string;
     expiresAt?: Date; photoUrls: string[];
-  }, userId?: string) {
+  }, user?: { userId: string; role: string }) {
+    const userId = user?.userId;
     if (!data.helpTypeName) throw new BadRequestException('Indica el tipo de ayuda');
     if (data.type === 'offer_help' && !userId) throw new BadRequestException('Los puntos de ayuda requieren iniciar sesión');
     const contacts = this.buildContacts(data.contacts);
@@ -325,16 +326,23 @@ export class PointService {
     }));
 
     const isOffer = data.type === 'offer_help';
+    // Un moderador ya es fuente de confianza: su punto nace VERIFICADO (mismo
+    // efecto que approvePoint) y no pasa por la cola de moderación.
+    const byModerator = user?.role === 'moderator';
     const point = await this.prisma.point.create({
       data: {
         code: await generateUniqueCode(this.prisma),
         type: data.type, title: data.title, description: data.description, helpTypeId: helpType.id,
-        status: isOffer ? 'pending' : 'active', verificationStatus: 'pending',
+        status: byModerator ? 'active' : isOffer ? 'pending' : 'active',
+        verificationStatus: byModerator ? 'approved' : 'pending',
         createdById: userId ?? null, expiresAt: data.expiresAt ?? null,
         locations: { create: locations.map((l) => ({ locationType: l.type as any, location: { create: { city: l.city ?? '', neighborhood: l.neighborhood ?? '', address: l.addressText ?? null, latitude: l.lat, longitude: l.lng } } })) as any },
         contacts: { create: contacts.map((c) => ({ type: c.type, value: c.value, isPublic: true })) },
         ...(supplyRows.length ? { supplies: { create: supplyRows } } : {}),
         ...(data.photoUrls.length ? { attachments: { create: data.photoUrls.map((url) => ({ url, type: 'image' as const })) } } : {}),
+        // Traza de auditoría de la auto-verificación del moderador (la misma que
+        // deja ModerationService.approvePoint al aprobar un punto).
+        ...(byModerator && userId ? { verifications: { create: { moderatorId: userId, status: 'approved' as const } } } : {}),
       },
     });
     // Notifica el punto nuevo (fan-out hacia apps partner). El dispatcher

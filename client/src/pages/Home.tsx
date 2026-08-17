@@ -182,7 +182,7 @@ export function Home() {
   }, [selected, isDesktop, type, helpType, showResolved, resolvedHiddenCount, query, terms, loading, error, truncated, filteredPoints, handleSelectPoint]);
 
   return (
-    <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">
+    <div className="flex flex-col md:flex-row h-[calc(100dvh-56px)]">
       <div className="relative h-[40vh] md:h-auto md:flex-1">
         <MapView
           points={filteredPoints}

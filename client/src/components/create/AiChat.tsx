@@ -9,7 +9,7 @@
 // ningún mensaje sale de él.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Cpu, ImagePlus, MapPin, Send, ShieldCheck, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, Cpu, ImagePlus, MapPin, Send, ShieldCheck, Sparkles, Square, TriangleAlert, X } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useLoginModal } from "../../context/LoginModalContext";
 import { publishPoint } from "../../api/points";
@@ -513,6 +513,13 @@ function DraftCard({
         + añadir contacto
       </button>
 
+      <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <p>
+          <strong>La IA puede equivocarse:</strong> valida estos datos antes de publicarlos.
+        </p>
+      </div>
+
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
@@ -551,7 +558,7 @@ function PublishedScreen({
   onSeeMap,
   onAnother,
 }: {
-  created: { code: string; type: PointType };
+  created: { code: string; type: PointType; verified?: boolean };
   onSeeMap: () => void;
   onAnother: () => void;
 }) {
@@ -572,9 +579,11 @@ function PublishedScreen({
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
         <p>
-          {created.type === "offer_help"
-            ? "Tu punto fue enviado a revisión. Un moderador lo verificará antes de publicarlo en el mapa."
-            : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
+          {created.verified
+            ? "Tu punto quedó verificado de inmediato (eres moderador) y ya está visible en el mapa."
+            : created.type === "offer_help"
+              ? "Tu punto fue enviado a revisión. Un moderador lo verificará antes de publicarlo en el mapa."
+              : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
         </p>
       </div>
 
@@ -645,10 +654,13 @@ export function AiChat({
   const [locQuery, setLocQuery] = useState("");
   // Publicación directa desde el chat (sube fotos + POST /points) y éxito.
   const [publishing, setPublishing] = useState(false);
-  const [published, setPublished] = useState<{ code: string; type: PointType } | null>(null);
+  const [published, setPublished] = useState<{ code: string; type: PointType; verified?: boolean } | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Object-URLs de las miniaturas mostradas en las burbujas del chat: se
+  // revocan al desmontar/reiniciar para no filtrar memoria.
+  const objectUrlsRef = useRef<string[]>([]);
 
   // El borrador extraído pasa a la copia editable de la tarjeta.
   useEffect(() => {
@@ -683,6 +695,14 @@ export function AiChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.messages, chat.status]);
 
+  // Libera los object-URLs de las miniaturas del chat al desmontar.
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      objectUrlsRef.current = [];
+    };
+  }, []);
+
   const modelLabel = findModelOption(chat.modelId).label;
 
   // Contexto UI para el guion del hook (la ubicación ya elegida o no).
@@ -714,12 +734,18 @@ export function AiChat({
 
   function handleFiles(files: FileList | null) {
     if (!files) return;
-    setPhotos((prev) =>
-      [...prev, ...Array.from(files).filter((f) => f.type.startsWith("image/"))].slice(
-        0,
-        MAX_PHOTOS,
-      ),
-    );
+    const incoming = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (incoming.length === 0) return;
+    // Respeta el límite global: solo se aceptan las que caben en MAX_PHOTOS.
+    const accepted = incoming.slice(0, Math.max(0, MAX_PHOTOS - photos.length));
+    if (accepted.length === 0) return;
+    setPhotos((prev) => [...prev, ...accepted]);
+    // Preview inmediato: cada foto aparece en la conversación como burbuja del
+    // usuario con miniaturas. No pasa por el modelo: las fotos viajan directo
+    // al punto al publicar (publishPoint sube `photos`).
+    const urls = accepted.map((f) => URL.createObjectURL(f));
+    objectUrlsRef.current.push(...urls);
+    chat.appendPhotoMessage(urls);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -768,7 +794,11 @@ export function AiChat({
         ],
         photos,
       });
-      setPublished(res);
+      setPublished({
+        code: res.code,
+        type: res.type,
+        verified: res.verificationStatus === "approved",
+      });
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "No pudimos publicar el punto.");
     } finally {
@@ -799,6 +829,8 @@ export function AiChat({
             setLocation(null);
             setPhotos([]);
             setPublishError(null);
+            objectUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+            objectUrlsRef.current = [];
             chat.resetConversation();
           }}
         />
@@ -862,6 +894,14 @@ export function AiChat({
               El modelo ({model.label}, {model.size}) se ejecuta{" "}
               <strong>100% en tu dispositivo</strong> (WebGPU): tus mensajes nunca salen de
               él. La descarga es solo la primera vez y queda en la caché del navegador.
+            </p>
+          </div>
+
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <p>
+              <strong>La IA puede equivocarse.</strong> Revisa y corrige lo que recopile
+              (título, descripción, contactos y ubicación) antes de publicarlo.
             </p>
           </div>
 
@@ -936,7 +976,13 @@ export function AiChat({
               // (el indicador "● ● ●" ya avisa que se está escribiendo).
               if (m.role === "assistant" && m.streaming && !m.content) return null;
               return (
-                <MessageBubble key={i} role={m.role} text={m.content} streaming={m.streaming} />
+                <MessageBubble
+                  key={i}
+                  role={m.role}
+                  text={m.content}
+                  streaming={m.streaming}
+                  images={m.photoUrls}
+                />
               );
             })}
           {generating && (
@@ -1085,6 +1131,10 @@ export function AiChat({
       <p className="flex shrink-0 items-center gap-1 px-4 pb-2 text-[10px] text-gray-400">
         <ShieldCheck className="h-3 w-3" aria-hidden="true" />
         Se procesa 100% en tu dispositivo; tus mensajes no salen de él.
+      </p>
+      <p className="flex shrink-0 items-center gap-1 px-4 pb-2 text-[10px] text-amber-600 dark:text-amber-400">
+        <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
+        La IA puede equivocarse: valida la información antes de enviarla.
       </p>
     </div>
   );

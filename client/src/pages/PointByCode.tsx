@@ -90,7 +90,7 @@ export function PointByCode() {
   // flyTo centra la cámara en el punto compartido al abrir el link.
   const primary = point.location;
   return (
-    <div className="flex flex-col md:flex-row h-[calc(100vh-56px)]">
+    <div className="flex flex-col md:flex-row h-[calc(100dvh-56px)]">
       {/* Mapa grande centrado en el punto compartido (solo desktop). */}
       <div className="hidden md:block md:flex-1">
         <MapView

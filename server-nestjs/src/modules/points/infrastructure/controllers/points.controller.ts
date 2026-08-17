@@ -165,7 +165,7 @@ export class PointsController {
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
         photoUrls,
       },
-      req.user?.userId,
+      req.user,
     );
   }
 

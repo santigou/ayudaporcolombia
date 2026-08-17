@@ -16,7 +16,7 @@ export function PointList({ points, selectedId, onSelect }: PointListProps) {
     );
   }
   return (
-    <div className="flex flex-col gap-2 p-3 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 pb-6">
       {points.map((point) => (
         <PointCard
           key={point.id}

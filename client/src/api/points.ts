@@ -39,6 +39,8 @@ export interface PublishPointInput {
 export interface PublishPointResult {
   code: string;
   type: PointType;
+  // "approved" cuando el creador es moderador: el punto nace verificado.
+  verificationStatus?: "pending" | "approved" | "rejected";
 }
 
 export async function publishPoint(input: PublishPointInput): Promise<PublishPointResult> {
@@ -63,7 +65,7 @@ export async function publishPoint(input: PublishPointInput): Promise<PublishPoi
   const validContacts = input.contacts
     .map((c) => ({ type: c.type, value: c.value.trim() }))
     .filter((c) => c.value);
-  const created = await api.post<{ code: string }>("/points", {
+  const created = await api.post<{ code: string; verificationStatus?: "pending" | "approved" | "rejected" }>("/points", {
     type: input.type,
     title: input.title.trim(),
     description: input.description.trim(),
@@ -73,5 +75,5 @@ export async function publishPoint(input: PublishPointInput): Promise<PublishPoi
     ...(validSupplies.length > 0 ? { supplies: validSupplies } : {}),
     photoUrls,
   });
-  return { code: created.code, type: input.type };
+  return { code: created.code, type: input.type, verificationStatus: created.verificationStatus };
 }

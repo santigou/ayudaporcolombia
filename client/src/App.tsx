@@ -75,6 +75,16 @@ function Navbar() {
           simple vista; el correo del usuario (solo informativo, no clicable)
           usa una "etiqueta" rellena sin borde para no confundirse con ellos. */}
       <nav className="hidden md:flex items-center gap-2 text-sm">
+        {/* Crear punto con IA (chat local): CTA destacado en verde de marca,
+            igual que la primera opción del menú móvil. Navega a /crear?chat=1,
+            que arranca el asistente directo en modo chat (ver CreateWizard). */}
+        <button
+          onClick={() => navigate("/crear?chat=1")}
+          className="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark"
+          title="Cuéntalo por chat: la IA corre en tu dispositivo y lo estructura por ti"
+        >
+          <Sparkles className="h-4 w-4" aria-hidden="true" /> Crear con IA
+        </button>
         <button onClick={toggle} aria-label="Cambiar tema" className={navIconButton}>
           {theme === "dark" ? <Sun className="h-5 w-5" aria-hidden="true" /> : <Moon className="h-5 w-5" aria-hidden="true" />}
         </button>

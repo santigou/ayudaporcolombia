@@ -48,6 +48,9 @@ export interface ChatMessage {
   // Notas de sistema / resultados de tools: van al CONTEXTO del LLM pero no se
   // pintan como burbujas ([sistema: …]).
   hidden?: boolean;
+  // Fotos adjuntadas por la persona (object-URLs): SOLO UI (miniaturas en la
+  // burbuja). No entran al contexto del LLM ni a la extracción de respaldo.
+  photoUrls?: string[];
 }
 
 // Contexto de UI que la persona ve (la app lo usa para decidir el guion; el
@@ -184,7 +187,7 @@ export function useLocalChat() {
       const historyBase = messagesRef.current.slice(0, -1);
       const buildHistory = (): ChatCompletionMessageParam[] => [
         { role: "system", content: buildAgentSystemPrompt() },
-        ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
+        ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
       ];
       // El JSON del modelo NO se muestra: se recoge entero y se parsea.
       const generate = (msgs: ChatCompletionMessageParam[]) =>
@@ -274,7 +277,7 @@ export function useLocalChat() {
           (
             await generate([
               { role: "system", content: buildLugarSystemPrompt() },
-              ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
+              ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
             ])
           ).text,
         );
@@ -291,7 +294,7 @@ export function useLocalChat() {
           (
             await generate([
               { role: "system", content: buildVerifierSystemPrompt(draftRef.current) },
-              ...historyBase.slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content })),
+              ...historyBase.slice(-MAX_HISTORY).filter((m) => m.content !== "").map((m) => ({ role: m.role, content: m.content })),
             ])
           ).text,
         );
@@ -389,7 +392,7 @@ export function useLocalChat() {
   // cuando el acumulado de "datos" no alcance). La invoca la UI si hace falta.
   const extractFromTranscript = useCallback(async () => {
     const transcript = messagesRef.current
-      .filter((m) => !m.hidden)
+      .filter((m) => !m.hidden && m.content !== "")
       .map((m) => {
         const body = m.role === "user" ? m.content : stripMarkers(m.content);
         return `${m.role === "user" ? "Persona" : "Asistente"}: ${body}`;
@@ -452,6 +455,14 @@ export function useLocalChat() {
     stopGeneration();
   }, []);
 
+  // Fotos adjuntadas por la persona: aparecen como burbuja del usuario con
+  // miniaturas. SOLO UI: no dispara generación del modelo ni entra a su
+  // contexto (el modelo no ve imágenes); las fotos viajan al punto cuando la
+  // UI publica.
+  const appendPhotoMessage = useCallback((photoUrls: string[]) => {
+    commit((prev) => [...prev, { role: "user", content: "", photoUrls }]);
+  }, []);
+
   // Reinicia la conversación (el motor sigue cargado).
   const resetConversation = useCallback(() => {
     commit(() => [{ role: "assistant", content: AI_GREETING }]);
@@ -491,6 +502,7 @@ export function useLocalChat() {
     start,
     send,
     stop,
+    appendPhotoMessage,
     resetConversation,
     dismissExtracted,
     clearLocationCandidates,

@@ -11,10 +11,13 @@ interface MessageBubbleProps {
   // Texto derivado cuando no hubo frase visible (y por tanto `text` vacío).
   fallbackText?: string | null;
   onRetry?: () => void;
+  // Miniaturas de fotos adjuntadas por la persona (preview en la conversación).
+  images?: string[];
 }
 
-export function MessageBubble({ role, text, streaming, fallbackText, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ role, text, streaming, fallbackText, onRetry, images }: MessageBubbleProps) {
   const isUser = role === "user";
+  const hasImages = !!images && images.length > 0;
   return (
     <li className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -24,6 +27,18 @@ export function MessageBubble({ role, text, streaming, fallbackText, onRetry }: 
             : "rounded-bl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
         }`}
       >
+        {hasImages && (
+          <div className={`mb-1 flex flex-wrap gap-1.5 ${isUser ? "justify-end" : ""}`}>
+            {images?.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt={`Foto adjunta ${i + 1}`}
+                className="h-20 w-20 rounded-lg object-cover"
+              />
+            ))}
+          </div>
+        )}
         {text ? (
           <p className="whitespace-pre-wrap break-words">
             {text}
@@ -42,7 +57,7 @@ export function MessageBubble({ role, text, streaming, fallbackText, onRetry }: 
               </button>
             )}
           </div>
-        ) : (
+        ) : hasImages ? null : (
           <div className="flex flex-wrap items-center gap-2">
             <p className="italic text-gray-400">(el asistente no respondió nada útil)</p>
             {onRetry && (

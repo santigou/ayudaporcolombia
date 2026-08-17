@@ -56,7 +56,9 @@ export function PointCard({ point, selected, onClick }: PointCardProps) {
             ) : null}
           </div>
           <p className="mt-1 text-sm text-gray-600 line-clamp-2">{point.description}</p>
-          {address && <p className="mt-1 text-xs text-gray-400">{address}</p>}
+          {address && (
+            <p className="mt-1 text-xs text-gray-400 line-clamp-2 break-words">{address}</p>
+          )}
         </div>
       </div>
     </button>

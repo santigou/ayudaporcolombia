@@ -77,7 +77,7 @@ export function CreateWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ type: PointType; code: string } | null>(null);
+  const [created, setCreated] = useState<{ type: PointType; code: string; verified?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const needsLogin = type === "offer_help" && !user;
@@ -282,7 +282,7 @@ export function CreateWizard() {
         supplies,
         photos,
       });
-      setCreated({ type, code: created.code });
+      setCreated({ type, code: created.code, verified: created.verificationStatus === "approved" });
       clearDraft(); // publicado con éxito: ya no hace falta el borrador
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No pudimos crear el punto.");
@@ -311,9 +311,11 @@ export function CreateWizard() {
         <h1 className="text-lg font-bold text-gray-900">¡Listo!</h1>
         <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <p>
-            {created.type === "offer_help"
-              ? "Tu punto fue enviado a revisión. Un moderador lo verificará antes de publicarlo en el mapa."
-              : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
+            {created.verified
+              ? "Tu punto quedó verificado de inmediato (eres moderador) y ya está visible en el mapa."
+              : created.type === "offer_help"
+                ? "Tu punto fue enviado a revisión. Un moderador lo verificará antes de publicarlo en el mapa."
+                : "Tu reporte ya está visible en el mapa, marcado como no verificado."}
           </p>
         </div>
 
