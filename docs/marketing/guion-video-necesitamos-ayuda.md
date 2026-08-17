@@ -154,7 +154,7 @@
      Al grabar, muestra el indicador **"En vivo"** y el contador de espectadores:
      vende muy bien la idea de chat en tiempo real.
    - El botón de pánico se llama **SOS** en la UI; dice "Pedir ayuda" y tiene una
-     cuenta regresiva (~15 s) cancelable — deja claro que no se publica por error.
+     cuenta corta (~3 s) cancelable que ARMA el botón "Pedir ayuda YA" (nada se publica solo; el envío final es inmediato) — deja claro que no se publica por error.
 3. **Veracidad ante todo:** los puntos que ofrecen ayuda pasan moderación
    (véndelo como ventaja: "verificados"); los de "necesitamos ayuda" salen al
    instante y se marcan como *no verificados* por diseño (velocidad ante la urgencia).

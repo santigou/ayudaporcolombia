@@ -106,12 +106,14 @@ function ChatHeader({
 // o de error con reintento.
 function LoadingModel({
   label,
+  size,
   progress,
   error,
   onRetry,
   onExit,
 }: {
   label: string;
+  size: string;
   progress: string;
   error: string | null;
   onRetry: () => void;
@@ -147,6 +149,10 @@ function LoadingModel({
           <h2 className="text-base font-semibold text-gray-900">Descargando {label}…</h2>
           <p className="text-xs text-gray-500">
             Solo la primera vez; después queda en la caché del navegador.
+          </p>
+          <p className="max-w-xs text-[11px] font-medium text-amber-800 dark:text-amber-200">
+            <strong>Ojo:</strong> la descarga pesa {size}. Con datos móviles puede
+            tardar varios minutos y consume tu plan; si puedes, conéctate a Wi-Fi.
           </p>
           <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-100">
             <div className="h-full w-1/3 animate-pulse rounded-full bg-brand" />
@@ -912,6 +918,10 @@ export function AiChat({
           >
             Descargar modelo y empezar
           </button>
+          <p className="mt-1.5 text-center text-[11px] font-medium text-amber-800 dark:text-amber-200">
+            La descarga pesa {model.size}: con datos móviles puede tardar varios
+            minutos. Mejor con Wi-Fi si puedes.
+          </p>
           <button
             type="button"
             onClick={onExit}
@@ -936,6 +946,7 @@ export function AiChat({
         />
         <LoadingModel
           label={modelLabel}
+          size={findModelOption(chat.modelId).size}
           progress={chat.progress}
           error={chat.error}
           onRetry={() => void chat.start()}
