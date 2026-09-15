@@ -116,3 +116,11 @@ docker compose -f docker-compose.prod.yml up -d --build
 # Detener todo
 docker compose -f docker-compose.prod.yml down
 ```
+
+## Licencia
+
+Este proyecto se distribuye bajo la **PolyForm Noncommercial License 1.0.0** (ver `LICENSE`):
+
+- Cualquier persona u organización puede **usar, modificar y redistribuir** el software **sin fines comerciales**. Eso incluye ONG, instituciones educativas, investigación pública, organizaciones de seguridad/emergencias, protección ambiental, gobierno y usos personales (la licencia detalla cada caso).
+- Los **autores** (titulares del copyright) **se reservan el uso comercial** del software y de sus obras derivadas.
+- ¿Necesitas uso comercial? Escríbenos para una licencia aparte.

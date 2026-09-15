@@ -1,6 +1,7 @@
 {
   "name": "server-nestjs",
   "version": "1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Ayuda por Colombia Backend - Hexagonal Architecture with NestJS",
   "main": "dist/main.js",
   "scripts": {
